@@ -45,5 +45,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Build all packages
+        run: npm run build
+
       - name: Type check
-        run: npx tsc --noEmit
+        run: |
+          npx tsc --noEmit -p packages/sdk/tsconfig.json
+          npx tsc --noEmit -p packages/cli/tsconfig.json
+          npx tsc --noEmit -p packages/mcp/tsconfig.json

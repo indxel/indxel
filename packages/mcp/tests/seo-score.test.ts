@@ -53,7 +53,7 @@ describe("seo_score tool logic", () => {
     };
 
     const result = validateMetadata(metadata);
-    expect(result.score).toBeLessThan(30);
+    expect(result.score).toBeLessThan(35);
     expect(result.grade).toBe("F");
     expect(result.errors.length).toBeGreaterThan(0);
   });

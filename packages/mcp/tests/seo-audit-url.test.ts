@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { extractMetadataFromHtml } from "../src/tools/seo-audit-url.js";
+import { extractMetadataFromHtml } from "indxel";
 
 describe("extractMetadataFromHtml", () => {
   it("extracts title from <title> tag", () => {
