@@ -36,6 +36,8 @@ export async function saveCheckResult(
           route: r.page.route,
           hasMetadata: r.page.hasMetadata,
           hasDynamicMetadata: r.page.hasDynamicMetadata,
+          isClientComponent: r.page.isClientComponent,
+          titleIsAbsolute: r.page.titleIsAbsolute,
           extractedMetadata: r.page.extractedMetadata,
         },
         validation: r.validation,
