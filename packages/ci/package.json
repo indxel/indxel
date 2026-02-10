@@ -1,0 +1,20 @@
+{
+  "name": "indxel-ci",
+  "version": "0.1.0",
+  "description": "CI/CD guard for indxel — fail builds on broken SEO.",
+  "license": "MIT",
+  "author": "Indxel",
+  "keywords": [
+    "seo",
+    "ci-cd",
+    "github-actions",
+    "vercel",
+    "developer-tools"
+  ],
+  "files": [
+    "action.yml",
+    "vercel-guard.mjs",
+    "examples",
+    "README.md"
+  ]
+}

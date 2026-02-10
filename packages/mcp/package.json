@@ -1,0 +1,54 @@
+{
+  "name": "indxel-mcp",
+  "version": "0.1.2",
+  "description": "MCP server for indxel — SEO audits for AI assistants (Claude, Cursor)",
+  "type": "module",
+  "main": "./dist/index.js",
+  "bin": {
+    "indxel-mcp": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "mcp",
+    "seo",
+    "claude",
+    "cursor",
+    "windsurf",
+    "ai",
+    "model-context-protocol",
+    "metadata",
+    "seo-audit",
+    "audit"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/indxel/indxel",
+    "directory": "packages/mcp"
+  },
+  "homepage": "https://indxel.com",
+  "bugs": {
+    "url": "https://github.com/indxel/indxel/issues"
+  },
+  "author": "Indxel",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "indxel": "^0.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}

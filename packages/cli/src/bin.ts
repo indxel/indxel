@@ -1,0 +1,4 @@
+import { createProgram } from "./index.js";
+
+const program = createProgram();
+program.parse();

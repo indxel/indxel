@@ -1,0 +1,24 @@
+# .github/workflows/seo-check-strict.yml
+#
+# Indxel — Strict mode. Warnings become errors.
+# Use this for production branches that need perfect SEO.
+
+name: SEO Check (Strict)
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  seo:
+    name: Indxel (Strict)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: indxel/ci@v1
+        with:
+          threshold: 90
+          strict: true

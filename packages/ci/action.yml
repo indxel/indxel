@@ -1,0 +1,174 @@
+name: "Indxel SEO Check"
+description: "Fail builds on broken SEO. ESLint for your meta tags."
+author: "Indxel"
+
+branding:
+  icon: "search"
+  color: "green"
+
+inputs:
+  threshold:
+    description: "Minimum average SEO score to pass (0-100)"
+    required: false
+    default: "80"
+  strict:
+    description: "Treat warnings as errors"
+    required: false
+    default: "false"
+  working-directory:
+    description: "Project root directory"
+    required: false
+    default: "."
+
+outputs:
+  score:
+    description: "Average SEO score across all pages"
+    value: ${{ steps.check.outputs.score }}
+  grade:
+    description: "SEO grade (A/B/C/D/F)"
+    value: ${{ steps.check.outputs.grade }}
+  total-pages:
+    description: "Total number of pages scanned"
+    value: ${{ steps.check.outputs.total-pages }}
+  passed-pages:
+    description: "Number of pages that passed validation"
+    value: ${{ steps.check.outputs.passed-pages }}
+  critical-errors:
+    description: "Number of critical SEO errors"
+    value: ${{ steps.check.outputs.critical-errors }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: "20"
+
+    - name: Install indxel-cli
+      shell: bash
+      run: npm install -g indxel-cli
+
+    - name: Run SEO Check
+      id: check
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        set +e
+        STRICT_FLAG=""
+        if [ "${{ inputs.strict }}" = "true" ]; then
+          STRICT_FLAG="--strict"
+        fi
+
+        OUTPUT=$(indxel check --ci --json $STRICT_FLAG 2>&1)
+        EXIT_CODE=$?
+
+        # Write raw JSON to file for the comment step
+        echo "$OUTPUT" > "$RUNNER_TEMP/indxel-result.json"
+
+        # Parse JSON output and set outputs
+        SCORE=$(echo "$OUTPUT" | node -e "const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));console.log(d.score)" 2>/dev/null || echo "0")
+        GRADE=$(echo "$OUTPUT" | node -e "const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));console.log(d.grade)" 2>/dev/null || echo "F")
+        TOTAL=$(echo "$OUTPUT" | node -e "const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));console.log(d.totalPages)" 2>/dev/null || echo "0")
+        PASSED=$(echo "$OUTPUT" | node -e "const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));console.log(d.passedPages)" 2>/dev/null || echo "0")
+        ERRORS=$(echo "$OUTPUT" | node -e "const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));console.log(d.criticalErrors)" 2>/dev/null || echo "0")
+
+        echo "score=$SCORE" >> "$GITHUB_OUTPUT"
+        echo "grade=$GRADE" >> "$GITHUB_OUTPUT"
+        echo "total-pages=$TOTAL" >> "$GITHUB_OUTPUT"
+        echo "passed-pages=$PASSED" >> "$GITHUB_OUTPUT"
+        echo "critical-errors=$ERRORS" >> "$GITHUB_OUTPUT"
+
+        # Check threshold
+        THRESHOLD=${{ inputs.threshold }}
+        if [ "$SCORE" -lt "$THRESHOLD" ]; then
+          echo "::error::SEO score $SCORE is below threshold $THRESHOLD"
+          echo "pass=false" >> "$GITHUB_OUTPUT"
+        else
+          echo "pass=true" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Post PR Comment
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+          const resultPath = `${process.env.RUNNER_TEMP}/indxel-result.json`;
+
+          let data;
+          try {
+            data = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
+          } catch {
+            core.warning('Could not parse indxel results — skipping PR comment.');
+            return;
+          }
+
+          const score = data.score;
+          const grade = data.grade;
+          const total = data.totalPages;
+          const passed = data.passedPages;
+          const errors = data.criticalErrors;
+          const threshold = parseInt('${{ inputs.threshold }}', 10);
+          const pass = score >= threshold;
+
+          const icon = pass ? ':white_check_mark:' : ':x:';
+          const gradeEmoji = grade === 'A' ? ':green_circle:' : grade === 'B' ? ':yellow_circle:' : ':red_circle:';
+
+          let body = `## ${icon} Indxel SEO Check\n\n`;
+          body += `| Metric | Value |\n|--------|-------|\n`;
+          body += `| Score | **${score}/100** ${gradeEmoji} |\n`;
+          body += `| Grade | **${grade}** |\n`;
+          body += `| Pages | ${passed}/${total} pass |\n`;
+          body += `| Errors | ${errors} |\n`;
+          body += `| Threshold | ${threshold} |\n\n`;
+
+          if (errors > 0 && data.pages) {
+            body += `### Issues\n\n`;
+            for (const page of data.pages) {
+              if (page.errors.length === 0) continue;
+              body += `**\`${page.route}\`** (${page.score}/100)\n`;
+              for (const err of page.errors) {
+                body += `- :x: ${err.message}\n`;
+              }
+              body += `\n`;
+            }
+          }
+
+          body += `---\n*[Indxel](https://github.com/indxel/indxel) — ESLint for your meta tags.*`;
+
+          // Find and update existing comment or create new one
+          const { data: comments } = await github.rest.issues.listComments({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.issue.number,
+          });
+
+          const marker = '## :white_check_mark: Indxel SEO Check';
+          const markerAlt = '## :x: Indxel SEO Check';
+          const existing = comments.find(c =>
+            c.body.startsWith(marker) || c.body.startsWith(markerAlt)
+          );
+
+          if (existing) {
+            await github.rest.issues.updateComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: existing.id,
+              body,
+            });
+          } else {
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });
+          }
+
+    - name: Fail on threshold
+      if: steps.check.outputs.pass == 'false'
+      shell: bash
+      run: |
+        echo "SEO score ${{ steps.check.outputs.score }} is below threshold ${{ inputs.threshold }}."
+        exit 1

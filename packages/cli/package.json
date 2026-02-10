@@ -1,0 +1,70 @@
+{
+  "name": "indxel-cli",
+  "version": "0.2.0",
+  "description": "CLI for SEO validation in Next.js projects. Init, check, diff, CI/CD mode.",
+  "type": "module",
+  "bin": {
+    "indxel": "./dist/bin.js",
+    "indxel-cli": "./dist/bin.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "templates",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "seo",
+    "seo-audit",
+    "seo-guard",
+    "seo-linter",
+    "eslint-seo",
+    "meta-tags-linter",
+    "cli",
+    "next.js",
+    "nextjs",
+    "metadata",
+    "validation",
+    "ci-cd",
+    "typescript",
+    "developer-tools",
+    "linter"
+  ],
+  "author": "Indxel",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/indxel/indxel",
+    "directory": "packages/cli"
+  },
+  "homepage": "https://indxel.com",
+  "bugs": {
+    "url": "https://github.com/indxel/indxel/issues"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "chalk": "^5.4.0",
+    "commander": "^13.0.0",
+    "glob": "^11.0.0",
+    "indxel": "^0.1.0",
+    "ora": "^8.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}

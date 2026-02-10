@@ -1,0 +1,26 @@
+{
+  "name": "indxel-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Open-source SEO infrastructure for developers.",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "test": "npm test --workspaces --if-present",
+    "clean": "rm -rf packages/*/dist"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/indxel/indxel.git"
+  },
+  "homepage": "https://indxel.com",
+  "bugs": {
+    "url": "https://github.com/indxel/indxel/issues"
+  }
+}

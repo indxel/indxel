@@ -1,0 +1,87 @@
+{
+  "name": "indxel",
+  "version": "0.1.0",
+  "description": "SEO validation and metadata generation for Next.js. 15 rules, 0-100 scoring, zero config.",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "seo",
+    "seo-linter",
+    "seo-check",
+    "seo-guard",
+    "seo-validation",
+    "seo-infrastructure",
+    "eslint-seo",
+    "next.js",
+    "nextjs",
+    "metadata",
+    "meta-tags",
+    "validation",
+    "structured-data",
+    "json-ld",
+    "typescript",
+    "ci-cd",
+    "developer-tools",
+    "open-graph",
+    "sitemap"
+  ],
+  "author": "Indxel",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/indxel/indxel",
+    "directory": "packages/sdk"
+  },
+  "homepage": "https://indxel.com",
+  "bugs": {
+    "url": "https://github.com/indxel/indxel/issues"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "peerDependencies": {
+    "next": ">=14.0.0"
+  },
+  "peerDependenciesMeta": {
+    "next": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "next": "^15.3.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0"
+  }
+}

@@ -1,0 +1,21 @@
+# .github/workflows/seo-check.yml
+#
+# Indxel — Fail PRs on broken meta tags.
+# https://github.com/indxel/indxel
+
+name: SEO Check
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  seo:
+    name: Indxel
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: indxel/ci@v1
+        with:
+          threshold: 80

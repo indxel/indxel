@@ -1,0 +1,24 @@
+# .github/workflows/seo-check-monorepo.yml
+#
+# Indxel — Monorepo setup.
+# Point to your Next.js app directory.
+
+name: SEO Check (Monorepo)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "apps/web/**"
+
+jobs:
+  seo:
+    name: Indxel
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: indxel/ci@v1
+        with:
+          threshold: 80
+          working-directory: apps/web
