@@ -1,6 +1,6 @@
 <p align="center">
   <a href="https://indxel.com">
-    <img src="https://indxel.com/Logo.svg" alt="Indxel" width="40" />
+    <img src="./assets/logo.png" alt="Indxel" width="80" />
   </a>
 </p>
 
