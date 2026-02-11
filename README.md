@@ -102,15 +102,15 @@ const seo = defineSEO({
   siteUrl: 'https://myapp.com',
   defaultTitle: 'My App — Build faster',
   defaultDescription: 'The best app for developers.',
-  defaultOgImage: '/og.png',
+  defaultOGImage: '/og.png',
 })
 
 // Generate Next.js metadata
-export const metadata = createMetadata(seo, {
+export const metadata = createMetadata({
   title: 'Pricing',
   description: 'Simple, transparent pricing.',
   path: '/pricing',
-})
+}, seo)
 
 // Generate JSON-LD structured data
 export const jsonLd = generateLD('Organization', {
