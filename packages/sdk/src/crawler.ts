@@ -11,8 +11,10 @@ export interface CrawlOptions {
   maxPages?: number;
   /** Maximum depth from start URL (default: 5) */
   maxDepth?: number;
-  /** Delay between requests in ms (default: 200) */
+  /** Delay between requests in ms (default: 500) */
   delay?: number;
+  /** Max retries on 503/429 errors (default: 2) */
+  retries?: number;
   /** Request timeout in ms (default: 15000) */
   timeout?: number;
   /** User-Agent string */
@@ -98,12 +100,15 @@ export interface CrawlAnalysis {
   brokenImages: Array<{ src: string; pages: string[]; status: number | string }>;
 }
 
+const BROWSER_UA = "Mozilla/5.0 (compatible; Indxel/0.1; +https://indxel.com/bot)";
+
 const DEFAULT_OPTIONS: Required<Omit<CrawlOptions, "onPageCrawled" | "strict">> = {
   maxPages: 500,
   maxDepth: 5,
-  delay: 200,
+  delay: 500,
   timeout: 15000,
-  userAgent: "Indxel/0.1 (SEO crawler)",
+  retries: 2,
+  userAgent: BROWSER_UA,
   ignorePatterns: [],
 };
 
@@ -163,7 +168,18 @@ export async function crawlSite(
 
     visited.add(url);
 
-    const page = await crawlPage(url, depth, opts);
+    let page = await crawlPage(url, depth, opts);
+
+    // Retry on 503/429 with exponential backoff
+    if (page.status && (page.status === 503 || page.status === 429)) {
+      for (let attempt = 1; attempt <= opts.retries; attempt++) {
+        const backoff = opts.delay * Math.pow(2, attempt); // 1s, 2s, ...
+        await sleep(backoff);
+        page = await crawlPage(url, depth, opts);
+        if (!page.status || (page.status !== 503 && page.status !== 429)) break;
+      }
+    }
+
     pages.push(page);
 
     if (opts.onPageCrawled) {
@@ -180,9 +196,10 @@ export async function crawlSite(
       }
     }
 
-    // Polite delay
+    // Polite delay with jitter to avoid rate-limit patterns
     if (queue.length > 0 && opts.delay > 0) {
-      await sleep(opts.delay);
+      const jitter = Math.floor(Math.random() * opts.delay * 0.5);
+      await sleep(opts.delay + jitter);
     }
   }
 
@@ -369,6 +386,8 @@ async function analyzeCrawl(pages: CrawledPage[], ignorePatterns: string[] = [])
   for (const p of valid) {
     if (!p.metadata.images) continue;
     for (const img of p.metadata.images) {
+      // Skip data: URIs (lazy-load placeholders, inline SVGs, etc.)
+      if (img.src.startsWith("data:")) continue;
       try {
         const resolved = new URL(img.src, p.url).href;
         if (!allImageSrcs.has(resolved)) allImageSrcs.set(resolved, []);
@@ -388,7 +407,7 @@ async function analyzeCrawl(pages: CrawledPage[], ignorePatterns: string[] = [])
           validatePublicUrl(src);
           const res = await safeFetch(src, {
             method: "HEAD",
-            headers: { "User-Agent": "Indxel/0.1 (SEO crawler)" },
+            headers: { "User-Agent": BROWSER_UA },
             signal: AbortSignal.timeout(10000),
           });
           if (!res.ok) {
@@ -440,7 +459,11 @@ async function crawlPage(
     let redirectCount = 0;
     while (true) {
       response = await safeFetch(currentUrl, {
-        headers: { "User-Agent": opts.userAgent, Accept: "text/html" },
+        headers: {
+          "User-Agent": opts.userAgent,
+          "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          "Accept-Language": "en-US,en;q=0.9",
+        },
         signal: AbortSignal.timeout(opts.timeout),
         redirect: "manual",
       });

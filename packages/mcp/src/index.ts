@@ -24,7 +24,7 @@ import {
 
 const server = new McpServer({
   name: "indxel",
-  version: "0.2.0",
+  version: "0.2.1",
 });
 
 // Register tools

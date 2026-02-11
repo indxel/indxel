@@ -94,7 +94,7 @@ async function fetchSitemapInternal(
       for (const loc of sitemapLocs) {
         try {
           validatePublicUrl(loc);
-          const childResult = await fetchSitemapInternal(loc, "", depth + 1, visited);
+          const childResult = await fetchSitemapInternal(loc, loc, depth + 1, visited);
           urls.push(...childResult.urls);
           errors.push(...childResult.errors);
         } catch (e) {
