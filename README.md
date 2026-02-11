@@ -215,7 +215,7 @@ The open-source tools handle validation and auditing. [Indxel Cloud](https://ind
 - **Alerts** — email notifications on score drops and indexation issues
 - **Scheduled crawls** — daily/weekly automated checks
 
-[Get started free →](https://indxel.com/pricing)
+[Get started free →](https://indxel.com)
 
 ## Contributing
 
