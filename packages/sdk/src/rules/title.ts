@@ -29,6 +29,11 @@ export const titleLengthRule: RuleDefinition = {
       return { status: "error", message: "No title to measure", value: 0, expected: "50-60" };
     }
 
+    // Variable reference detected but value unknown — skip length check
+    if (title === "[detected]") {
+      return { status: "pass", message: "Title present (dynamic value, length not checked)", value: undefined, expected: "50-60" };
+    }
+
     if (len >= 50 && len <= 60) {
       return { status: "pass", message: `Title length is ${len} characters (ideal range)`, value: len, expected: "50-60" };
     }

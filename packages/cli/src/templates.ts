@@ -1,11 +1,11 @@
 /** Generate the seo.config.ts template */
-export function seoConfigTemplate(isTypeScript: boolean): string {
+export function seoConfigTemplate(isTypeScript: boolean, siteUrl = "https://example.com"): string {
   if (isTypeScript) {
     return `import { defineSEO } from 'indxel'
 
 export default defineSEO({
   siteName: 'My Site',
-  siteUrl: 'https://example.com',
+  siteUrl: '${siteUrl}',
   titleTemplate: '%s | My Site',
   defaultDescription: 'A short description of your site for search engines.',
   defaultOGImage: '/og-image.png',
@@ -17,7 +17,7 @@ export default defineSEO({
   // organization: {
   //   name: 'My Company',
   //   logo: '/logo.png',
-  //   url: 'https://example.com',
+  //   url: '${siteUrl}',
   // },
 })
 `;
@@ -27,7 +27,7 @@ export default defineSEO({
 
 module.exports = defineSEO({
   siteName: 'My Site',
-  siteUrl: 'https://example.com',
+  siteUrl: '${siteUrl}',
   titleTemplate: '%s | My Site',
   defaultDescription: 'A short description of your site for search engines.',
   defaultOGImage: '/og-image.png',
@@ -37,12 +37,12 @@ module.exports = defineSEO({
 }
 
 /** Generate the sitemap.ts template */
-export function sitemapTemplate(isTypeScript: boolean): string {
+export function sitemapTemplate(isTypeScript: boolean, siteUrl = "https://example.com"): string {
   if (isTypeScript) {
     return `import type { MetadataRoute } from 'next'
 
 export default function sitemap(): MetadataRoute.Sitemap {
-  const baseUrl = 'https://example.com'
+  const baseUrl = '${siteUrl}'
 
   return [
     {
@@ -67,7 +67,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
 
   return `/** @returns {import('next').MetadataRoute.Sitemap} */
 export default function sitemap() {
-  const baseUrl = 'https://example.com'
+  const baseUrl = '${siteUrl}'
 
   return [
     {
@@ -82,12 +82,12 @@ export default function sitemap() {
 }
 
 /** Generate the robots.ts template */
-export function robotsTemplate(isTypeScript: boolean): string {
+export function robotsTemplate(isTypeScript: boolean, siteUrl = "https://example.com"): string {
   if (isTypeScript) {
     return `import type { MetadataRoute } from 'next'
 
 export default function robots(): MetadataRoute.Robots {
-  const baseUrl = 'https://example.com'
+  const baseUrl = '${siteUrl}'
 
   return {
     rules: [
@@ -105,7 +105,7 @@ export default function robots(): MetadataRoute.Robots {
 
   return `/** @returns {import('next').MetadataRoute.Robots} */
 export default function robots() {
-  const baseUrl = 'https://example.com'
+  const baseUrl = '${siteUrl}'
 
   return {
     rules: [

@@ -29,6 +29,11 @@ export const descriptionLengthRule: RuleDefinition = {
       return { status: "error", message: "No description to measure", value: 0, expected: "120-160" };
     }
 
+    // Variable reference detected but value unknown — skip length check
+    if (desc === "[detected]") {
+      return { status: "pass", message: "Description present (dynamic value, length not checked)", value: undefined, expected: "120-160" };
+    }
+
     if (len >= 120 && len <= 160) {
       return { status: "pass", message: `Description length is ${len} characters (ideal range)`, value: len, expected: "120-160" };
     }

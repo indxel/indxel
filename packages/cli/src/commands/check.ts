@@ -2,8 +2,8 @@ import { Command } from "commander";
 import chalk from "chalk";
 import ora from "ora";
 import { validateMetadata } from "indxel";
-import { detectProject } from "../detect.js";
-import { scanPages } from "../scanner.js";
+import { detectProject, frameworkLabel } from "../detect.js";
+import { scanProject } from "../scan.js";
 import { loadConfig } from "../config.js";
 import {
   formatPageResult,
@@ -14,7 +14,7 @@ import {
   computeSummary,
   type CheckResult,
 } from "../formatter.js";
-import { saveCheckResult, loadPreviousCheck } from "../store.js";
+import { saveCheckResult, loadPreviousCheck, resolveApiKey } from "../store.js";
 import { generateFixSuggestions } from "../fixer.js";
 
 export const checkCommand = new Command("check")
@@ -26,6 +26,8 @@ export const checkCommand = new Command("check")
   .option("--strict", "Treat warnings as errors", false)
   .option("--min-score <score>", "Minimum score to pass (0-100, default: exit on any error)")
   .option("--fix", "Show suggested metadata code to fix errors", false)
+  .option("--push", "Push results to Indxel dashboard", false)
+  .option("--api-key <key>", "API key for --push (or set INDXEL_API_KEY env var)")
   .action(async (opts) => {
     const cwd = opts.cwd;
     const isCI = opts.ci;
@@ -46,30 +48,43 @@ export const checkCommand = new Command("check")
     const spinner = ora("Detecting project...").start();
     const project = await detectProject(cwd);
 
-    if (!project.isNextJs) {
-      spinner.fail("Not a Next.js project");
+    if (project.framework === "unknown") {
+      spinner.fail("No supported framework detected");
       if (!jsonOutput) {
-        console.log(chalk.dim("  Run this command from a Next.js project root."));
+        console.log(chalk.dim("  Supported: Next.js, Nuxt, Remix, Astro, SvelteKit."));
+        console.log(chalk.dim("  For any live site, use: npx indxel crawl <url>"));
       }
       process.exit(1);
     }
 
     if (!project.usesAppRouter) {
-      spinner.fail("App Router not detected");
+      spinner.fail(`No pages directory detected for ${frameworkLabel(project.framework)}`);
       if (!jsonOutput) {
-        console.log(chalk.dim("  indxel requires Next.js App Router (src/app or app directory)."));
+        const hints: Record<string, string> = {
+          nextjs: "indxel requires Next.js App Router (src/app or app directory).",
+          nuxt: "indxel requires a pages/ directory for Nuxt.",
+          remix: "indxel requires an app/routes/ directory for Remix.",
+          astro: "indxel requires a src/pages/ directory for Astro.",
+          sveltekit: "indxel requires a src/routes/ directory for SvelteKit.",
+          unknown: "",
+        };
+        console.log(chalk.dim(`  ${hints[project.framework]}`));
       }
       process.exit(1);
     }
 
+    const label = frameworkLabel(project.framework);
+    const version = project.frameworkVersion ? ` ${project.frameworkVersion}` : "";
+    spinner.succeed(`Detected ${label}${version}`);
+
     // 2. Scan pages
-    spinner.text = "Scanning pages...";
-    const allPages = await scanPages(cwd, project.appDir);
+    const scanSpinner = ora("Scanning pages...").start();
+    const allPages = await scanProject(project.framework, cwd, project.appDir);
 
     if (allPages.length === 0) {
-      spinner.fail("No pages found");
+      scanSpinner.fail("No pages found");
       if (!jsonOutput) {
-        console.log(chalk.dim(`  No page.tsx/ts files found in ${project.appDir}/`));
+        console.log(chalk.dim(`  No page files found in ${project.appDir}/`));
       }
       process.exit(1);
     }
@@ -81,7 +96,7 @@ export const checkCommand = new Command("check")
       : allPages;
     const ignoredCount = allPages.length - pages.length;
 
-    spinner.succeed(`Found ${allPages.length} page${allPages.length > 1 ? "s" : ""}${ignoredCount > 0 ? ` (${ignoredCount} ignored)` : ""}`);
+    scanSpinner.succeed(`Found ${allPages.length} page${allPages.length > 1 ? "s" : ""}${ignoredCount > 0 ? ` (${ignoredCount} ignored)` : ""}`);
 
     // 3. Separate static vs dynamic pages
     const staticPages = pages.filter((p) => !p.hasDynamicMetadata);
@@ -158,7 +173,75 @@ export const checkCommand = new Command("check")
       }
     }
 
-    // 10. Exit code
+    // 10. Push to dashboard
+    if (opts.push) {
+      const apiKey = await resolveApiKey(opts.apiKey);
+      if (!apiKey) {
+        if (!jsonOutput) {
+          console.log(chalk.yellow("  ⚠") + " To push results to your dashboard, link your project first:");
+          console.log("");
+          console.log(chalk.bold("    npx indxel link"));
+          console.log("");
+          console.log(chalk.dim("  Or use --api-key / set INDXEL_API_KEY."));
+          console.log("");
+        }
+      } else {
+        const pushSpinner = jsonOutput ? null : ora("Pushing results to Indxel...").start();
+        try {
+          const pushUrl = process.env.INDXEL_API_URL || "https://indxel.com";
+          const res = await fetch(`${pushUrl}/api/cli/push`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${apiKey}`,
+            },
+            body: JSON.stringify({
+              type: "check",
+              check: {
+                score: summary.averageScore,
+                grade: summary.grade,
+                totalPages: summary.totalPages,
+                passedPages: summary.passedPages,
+                criticalErrors: summary.criticalErrors,
+                optionalErrors: summary.optionalErrors,
+                pages: summary.results.map((r) => ({
+                  route: r.page.route,
+                  score: r.validation.score,
+                  errors: r.validation.errors.length,
+                  warnings: r.validation.warnings.length,
+                })),
+              },
+            }),
+          });
+          if (res.ok) {
+            const data = (await res.json()) as { checkId?: string; usage?: { used: number; limit: number } };
+            if (pushSpinner) pushSpinner.succeed(`Pushed to dashboard — check ${data.checkId}`);
+            if (data.usage && !jsonOutput) {
+              const pct = Math.round((data.usage.used / data.usage.limit) * 100);
+              const usageColor = pct >= 80 ? chalk.yellow : chalk.dim;
+              console.log(usageColor(`  Usage: ${data.usage.used}/${data.usage.limit} checks this month (${pct}%)`));
+            }
+          } else {
+            const data = (await res.json().catch(() => ({}))) as { error?: string };
+            if (pushSpinner) pushSpinner.fail(`Push failed: ${data.error || res.statusText}`);
+          }
+        } catch (err) {
+          if (pushSpinner) pushSpinner.fail(`Push failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+        if (!jsonOutput) console.log("");
+      }
+    }
+
+    // 11. Nudge toward continuous monitoring (interactive mode only, not CI)
+    if (!jsonOutput && !isCI) {
+      if (!opts.push) {
+        console.log(chalk.dim("  Save to dashboard   → ") + chalk.bold("npx indxel check --push"));
+      }
+      console.log(chalk.dim("  Guard deploys       → ") + chalk.bold("npx indxel init --hook"));
+      console.log("");
+    }
+
+    // 11. Exit code
     if (minScore !== null) {
       // --min-score mode: fail only if score is below threshold
       if (summary.averageScore < minScore) {

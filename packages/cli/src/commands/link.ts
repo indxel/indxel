@@ -2,6 +2,7 @@ import { Command } from "commander";
 import chalk from "chalk";
 import ora from "ora";
 import { loadProjectConfig, saveProjectConfig, loadIndexNowKey } from "../store.js";
+import { resolveProjectUrl } from "../config.js";
 
 function delay(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
@@ -9,21 +10,25 @@ function delay(ms: number): Promise<void> {
 
 async function openBrowser(url: string): Promise<void> {
   const { platform } = process;
-  const { exec } = await import("node:child_process");
+  const { execFile } = await import("node:child_process");
 
   const cmd =
     platform === "darwin"
       ? "open"
       : platform === "win32"
-        ? "start"
+        ? "cmd"
         : "xdg-open";
 
-  exec(`${cmd} ${url}`);
+  if (platform === "win32") {
+    execFile(cmd, ["/c", "start", "", url]);
+  } else {
+    execFile(cmd, [url]);
+  }
 }
 
 export const linkCommand = new Command("link")
   .description("Link this project to your Indxel dashboard for monitoring")
-  .option("--api-key <key>", "Link directly with an API key (skip browser flow)")
+  .option("--api-key <key>", "Link directly with an account API key (skip browser flow)")
   .action(async (opts) => {
     const apiUrl = process.env.INDXEL_API_URL || "https://indxel.com";
     const cwd = process.cwd();
@@ -46,7 +51,7 @@ export const linkCommand = new Command("link")
 
     // Option 1: Direct API key
     if (opts.apiKey) {
-      const spinner = ora("Verifying API key...").start();
+      const spinner = ora("Fetching projects...").start();
 
       try {
         const res = await fetch(`${apiUrl}/api/projects/by-key`, {
@@ -61,19 +66,64 @@ export const linkCommand = new Command("link")
           process.exit(1);
         }
 
-        const body = (await res.json()) as { project: { id: string; name: string } };
-        const project = body.project;
-        spinner.succeed(`Linked to ${chalk.bold(project.name)}`);
+        const body = (await res.json()) as { projects: Array<{ id: string; name: string; url: string }> };
+        const projects = body.projects;
 
-        await saveProjectConfig(cwd, {
-          apiKey: opts.apiKey,
-          projectId: project.id,
-          projectName: project.name,
-          linkedAt: new Date().toISOString(),
-        });
+        if (projects.length === 0) {
+          spinner.fail("No projects found. Create one at https://indxel.com/dashboard first.");
+          console.log("");
+          process.exit(1);
+        }
 
-        // Sync IndexNow key if available
-        await syncIndexNowKey(cwd, apiUrl, opts.apiKey, project.id);
+        // Try to auto-match by URL
+        const detectedUrl = await resolveProjectUrl(cwd);
+        let matched = detectedUrl
+          ? projects.find(p => normalizeUrl(p.url) === normalizeUrl(detectedUrl))
+          : null;
+
+        // If only one project, use it
+        if (!matched && projects.length === 1) {
+          matched = projects[0];
+        }
+
+        if (matched) {
+          spinner.succeed(`Linked to ${chalk.bold(matched.name)}`);
+
+          await saveProjectConfig(cwd, {
+            apiKey: opts.apiKey,
+            projectId: matched.id,
+            projectName: matched.name,
+            linkedAt: new Date().toISOString(),
+          });
+
+          await syncIndexNowKey(cwd, apiUrl, opts.apiKey, matched.id);
+        } else {
+          // Multiple projects, no auto-match — show list
+          spinner.stop();
+          console.log(chalk.bold("  Multiple projects found. Pick one:"));
+          console.log("");
+          projects.forEach((p, i) => {
+            console.log(`  ${chalk.bold(`${i + 1}.`)} ${p.name} ${chalk.dim(`(${p.url})`)}`);
+          });
+          console.log("");
+          console.log(chalk.dim("  Re-run with the project URL matching your codebase,"));
+          console.log(chalk.dim("  or add a seo.config.ts with your site URL."));
+          console.log("");
+
+          // Default to first project
+          const project = projects[0];
+          const linkSpinner = ora(`Linking to ${project.name}...`).start();
+
+          await saveProjectConfig(cwd, {
+            apiKey: opts.apiKey,
+            projectId: project.id,
+            projectName: project.name,
+            linkedAt: new Date().toISOString(),
+          });
+
+          await syncIndexNowKey(cwd, apiUrl, opts.apiKey, project.id);
+          linkSpinner.succeed(`Linked to ${chalk.bold(project.name)}`);
+        }
 
         console.log("");
         console.log(chalk.dim("  Config saved to .indxel/config.json"));
@@ -196,9 +246,17 @@ export const linkCommand = new Command("link")
     process.exit(1);
   });
 
+/** Normalize URL for matching: strip protocol, trailing slash, www */
+function normalizeUrl(url: string): string {
+  return url
+    .replace(/^https?:\/\//, '')
+    .replace(/^www\./, '')
+    .replace(/\/+$/, '')
+    .toLowerCase();
+}
+
 /**
  * Sync the local IndexNow key to the linked project on the dashboard.
- * This avoids the "pending verification" state in the dashboard UI.
  */
 async function syncIndexNowKey(
   cwd: string,

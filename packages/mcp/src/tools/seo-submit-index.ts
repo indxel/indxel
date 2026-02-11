@@ -1,8 +1,6 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { withCta } from "./shared.js";
-
-const API_BASE = "https://indxel.com";
+import { withCta, API_BASE } from "./shared.js";
 
 export function registerSeoSubmitIndex(server: McpServer) {
   server.tool(

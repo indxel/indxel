@@ -13,6 +13,11 @@ export const canonicalRule: RuleDefinition = {
       return { status: "error", message: "Missing canonical URL — risk of duplicate content" };
     }
 
+    // Variable reference detected but value unknown — assume correct
+    if (canonical === "[detected]") {
+      return { status: "pass", message: "Canonical URL present (dynamic value, not checked)", value: undefined };
+    }
+
     const isAbsolute = canonical.startsWith("http://") || canonical.startsWith("https://");
     if (!isAbsolute) {
       return {

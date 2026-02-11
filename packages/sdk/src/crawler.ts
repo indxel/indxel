@@ -99,7 +99,7 @@ export interface CrawlAnalysis {
 }
 
 const DEFAULT_OPTIONS: Required<Omit<CrawlOptions, "onPageCrawled" | "strict">> = {
-  maxPages: 200,
+  maxPages: 500,
   maxDepth: 5,
   delay: 200,
   timeout: 15000,

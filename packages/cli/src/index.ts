@@ -7,13 +7,17 @@ import { indexCommand } from "./commands/index.js";
 import { perfCommand } from "./commands/perf.js";
 import { linkCommand } from "./commands/link.js";
 
+// Injected at build time by tsup define
+declare const __CLI_VERSION__: string;
+const cliVersion = typeof __CLI_VERSION__ !== "undefined" ? __CLI_VERSION__ : "0.3.1";
+
 export function createProgram(): Command {
   const program = new Command();
 
   program
     .name("indxel")
     .description("Infrastructure SEO developer-first. ESLint pour le SEO.")
-    .version("0.1.0");
+    .version(cliVersion);
 
   program.addCommand(initCommand);
   program.addCommand(checkCommand);

@@ -4,13 +4,25 @@ import ora from "ora";
 import { existsSync } from "node:fs";
 import { writeFile, mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { detectProject } from "../detect.js";
+import { createInterface } from "node:readline";
+import { detectProject, frameworkLabel } from "../detect.js";
 import { generateIndexNowKey, saveIndexNowKey, loadIndexNowKey } from "../store.js";
 import {
   seoConfigTemplate,
   sitemapTemplate,
   robotsTemplate,
 } from "../templates.js";
+import { detectProjectUrl } from "../config.js";
+
+function ask(question: string): Promise<string> {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  return new Promise((resolve) => {
+    rl.question(question, (answer) => {
+      rl.close();
+      resolve(answer.trim());
+    });
+  });
+}
 
 const PRE_PUSH_HOOK = `#!/bin/sh
 # indxel SEO guard — blocks push if critical SEO errors are found
@@ -25,7 +37,7 @@ fi
 `;
 
 export const initCommand = new Command("init")
-  .description("Initialize indxel in your Next.js project")
+  .description("Initialize indxel in your project")
   .option("--cwd <path>", "Project directory", process.cwd())
   .option("--force", "Overwrite existing files", false)
   .option("--hook", "Install git pre-push hook to block pushes on SEO errors", false)
@@ -36,52 +48,84 @@ export const initCommand = new Command("init")
     // 1. Detect project
     const project = await detectProject(cwd);
 
-    if (!project.isNextJs) {
-      spinner.fail("Not a Next.js project");
+    if (project.framework === "unknown") {
+      spinner.fail("No supported framework detected");
       console.log(
-        chalk.dim("  indxel currently supports Next.js projects only."),
+        chalk.dim("  Supported: Next.js, Nuxt, Remix, Astro, SvelteKit."),
       );
       console.log(
-        chalk.dim("  Make sure you're in a directory with a next.config file."),
+        chalk.dim("  Make sure you're in a project directory with a config file and package.json."),
       );
       process.exit(1);
     }
 
-    spinner.succeed(
-      `Detected Next.js ${project.nextVersion ?? ""} (${project.usesAppRouter ? "App Router" : "Pages Router"})`,
-    );
+    const label = frameworkLabel(project.framework);
+    const version = project.frameworkVersion ? ` ${project.frameworkVersion}` : "";
+    spinner.succeed(`Detected ${label}${version}`);
 
     const ext = project.isTypeScript ? "ts" : "js";
     const filesCreated: string[] = [];
 
-    // 2. Generate seo.config.ts
+    // 2. Detect or ask for site URL, then generate seo.config.ts
+    let siteUrl = "https://example.com";
     if (!project.hasSeoConfig || opts.force) {
+      const detection = await detectProjectUrl(cwd, project.framework);
+
+      if (detection.url && detection.confident) {
+        // Multiple sources agree or explicit config — use it directly
+        siteUrl = detection.url;
+        console.log(chalk.green("  ✓") + ` Detected URL: ${chalk.bold(siteUrl)}` + chalk.dim(` (${detection.source})`));
+      } else if (detection.url) {
+        // Single source / low confidence — ask for confirmation
+        const answer = await ask(
+          chalk.bold("  Site URL") + chalk.dim(` [${detection.url}] `) + chalk.bold(": ")
+        );
+        siteUrl = answer && answer !== ""
+          ? (answer.startsWith("http") ? answer : `https://${answer}`)
+          : detection.url;
+      } else {
+        // Nothing found — ask
+        const answer = await ask(chalk.bold("  Site URL: ") + chalk.dim("(e.g., https://mysite.com) "));
+        if (answer && answer !== "") {
+          siteUrl = answer.startsWith("http") ? answer : `https://${answer}`;
+        }
+      }
       const configPath = join(cwd, `seo.config.${ext}`);
-      await writeFile(configPath, seoConfigTemplate(project.isTypeScript), "utf-8");
+      await writeFile(configPath, seoConfigTemplate(project.isTypeScript, siteUrl), "utf-8");
       filesCreated.push(`seo.config.${ext}`);
-      console.log(chalk.green("  ✓") + ` Generated seo.config.${ext}`);
+      console.log(chalk.green("  ✓") + ` Generated seo.config.${ext}` + chalk.dim(` (${siteUrl})`));
     } else {
       console.log(chalk.dim(`  - seo.config.${ext} already exists (skip)`));
     }
 
-    // 3. Generate sitemap.ts
-    if (!project.hasSitemap || opts.force) {
-      const sitemapPath = join(cwd, project.appDir, `sitemap.${ext}`);
-      await writeFile(sitemapPath, sitemapTemplate(project.isTypeScript), "utf-8");
-      filesCreated.push(`${project.appDir}/sitemap.${ext}`);
-      console.log(chalk.green("  ✓") + ` Generated ${project.appDir}/sitemap.${ext}`);
-    } else {
-      console.log(chalk.dim(`  - sitemap already exists (skip)`));
-    }
+    // 3. Generate sitemap.ts (Next.js-specific template)
+    if (project.framework === "nextjs") {
+      if (!project.hasSitemap || opts.force) {
+        const sitemapPath = join(cwd, project.appDir, `sitemap.${ext}`);
+        await writeFile(sitemapPath, sitemapTemplate(project.isTypeScript, siteUrl), "utf-8");
+        filesCreated.push(`${project.appDir}/sitemap.${ext}`);
+        console.log(chalk.green("  ✓") + ` Generated ${project.appDir}/sitemap.${ext}`);
+      } else {
+        console.log(chalk.dim(`  - sitemap already exists (skip)`));
+      }
 
-    // 4. Generate robots.ts
-    if (!project.hasRobots || opts.force) {
-      const robotsPath = join(cwd, project.appDir, `robots.${ext}`);
-      await writeFile(robotsPath, robotsTemplate(project.isTypeScript), "utf-8");
-      filesCreated.push(`${project.appDir}/robots.${ext}`);
-      console.log(chalk.green("  ✓") + ` Generated ${project.appDir}/robots.${ext}`);
+      // 4. Generate robots.ts (Next.js-specific template)
+      if (!project.hasRobots || opts.force) {
+        const robotsPath = join(cwd, project.appDir, `robots.${ext}`);
+        await writeFile(robotsPath, robotsTemplate(project.isTypeScript, siteUrl), "utf-8");
+        filesCreated.push(`${project.appDir}/robots.${ext}`);
+        console.log(chalk.green("  ✓") + ` Generated ${project.appDir}/robots.${ext}`);
+      } else {
+        console.log(chalk.dim(`  - robots already exists (skip)`));
+      }
     } else {
-      console.log(chalk.dim(`  - robots already exists (skip)`));
+      // Non-Next.js: check for sitemap/robots and advise
+      if (!project.hasSitemap) {
+        console.log(chalk.yellow("  ⚠") + " No sitemap detected — add a public/sitemap.xml or generate one with your framework");
+      }
+      if (!project.hasRobots) {
+        console.log(chalk.yellow("  ⚠") + " No robots.txt detected — add a public/robots.txt");
+      }
     }
 
     // 5. Git pre-push hook
@@ -114,35 +158,47 @@ export const initCommand = new Command("init")
       console.log(chalk.dim("  - Use --hook to install git pre-push guard"));
     }
 
-    // 6. IndexNow — zero-friction setup
+    // 6. Ensure .indxel/ is in .gitignore (contains API key)
+    const gitignorePath = join(cwd, ".gitignore");
+    if (existsSync(gitignorePath)) {
+      const gitignoreContent = await readFile(gitignorePath, "utf-8");
+      if (!gitignoreContent.includes(".indxel")) {
+        await writeFile(gitignorePath, gitignoreContent.trimEnd() + "\n\n# Indxel local config (contains API key)\n.indxel/\n", "utf-8");
+        console.log(chalk.green("  ✓") + " Added .indxel/ to .gitignore");
+      }
+    }
+
+    // 7. IndexNow — zero-friction setup
+    // SvelteKit uses static/, everyone else uses public/
+    const staticDirName = project.framework === "sveltekit" ? "static" : "public";
     const existingKey = await loadIndexNowKey(cwd);
     if (!existingKey || opts.force) {
       const key = generateIndexNowKey();
-      const publicDir = join(cwd, "public");
+      const publicDir = join(cwd, staticDirName);
       if (!existsSync(publicDir)) {
         await mkdir(publicDir, { recursive: true });
       }
       await writeFile(join(publicDir, `${key}.txt`), key, "utf-8");
       await saveIndexNowKey(cwd, key);
-      filesCreated.push(`public/${key}.txt`);
+      filesCreated.push(`${staticDirName}/${key}.txt`);
       console.log(chalk.green("  ✓") + " IndexNow ready — Bing, Yandex & Naver will pick up your pages on deploy");
     } else {
-      // Key exists — make sure the public file is there too
-      const keyFile = join(cwd, "public", `${existingKey}.txt`);
+      // Key exists — make sure the file is there too
+      const keyFile = join(cwd, staticDirName, `${existingKey}.txt`);
       if (existsSync(keyFile)) {
         console.log(chalk.dim("  - IndexNow already set up (skip)"));
       } else {
-        const publicDir = join(cwd, "public");
+        const publicDir = join(cwd, staticDirName);
         if (!existsSync(publicDir)) {
           await mkdir(publicDir, { recursive: true });
         }
         await writeFile(keyFile, existingKey, "utf-8");
-        filesCreated.push(`public/${existingKey}.txt`);
+        filesCreated.push(`${staticDirName}/${existingKey}.txt`);
         console.log(chalk.green("  ✓") + " IndexNow key file restored");
       }
     }
 
-    // 7. Summary
+    // 8. Summary
     console.log("");
     if (filesCreated.length > 0) {
       console.log(
@@ -155,8 +211,8 @@ export const initCommand = new Command("init")
 
     console.log("");
     console.log(chalk.dim("  Next steps:"));
-    console.log(chalk.dim(`    1. Edit seo.config.${ext} with your site details`));
-    console.log(chalk.dim("    2. Run ") + chalk.bold("npx indxel check") + chalk.dim(" to audit your pages"));
+    console.log(chalk.dim("    1. Run ") + chalk.bold("npx indxel check") + chalk.dim(" to audit your pages"));
+    console.log(chalk.dim("    2. Run ") + chalk.bold("npx indxel crawl") + chalk.dim(" to crawl your live site"));
     if (!opts.hook && hasGit) {
       console.log(chalk.dim("    3. Run ") + chalk.bold("npx indxel init --hook") + chalk.dim(" to guard git pushes"));
     }

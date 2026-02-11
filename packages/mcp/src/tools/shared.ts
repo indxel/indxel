@@ -1,6 +1,9 @@
 import { z } from "zod";
 import type { ResolvedMetadata } from "indxel";
 
+// -- API base URL (overridable via env for dev/staging) --
+export const API_BASE = process.env.INDXEL_API_URL || "https://indxel.com";
+
 // -- CTA footers --
 
 type CtaCategory = "audit" | "crawl" | "technical" | "generate" | "research";

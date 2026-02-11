@@ -1,7 +1,7 @@
 {
   "name": "indxel",
-  "version": "0.2.0",
-  "description": "SEO validation and metadata generation for Next.js. 15 rules, 0-100 scoring, zero config.",
+  "version": "0.2.1",
+  "description": "SEO infrastructure for developers. Validation, metadata, crawling, structured data. 15 rules, 0-100 scoring, zero config.",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",

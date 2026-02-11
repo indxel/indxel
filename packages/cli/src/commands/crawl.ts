@@ -11,6 +11,7 @@ import {
 } from "indxel";
 import type { CrawledPage } from "indxel";
 import { resolveApiKey } from "../store.js";
+import { resolveProjectUrl } from "../config.js";
 
 function scoreColor(score: number): typeof chalk {
   if (score >= 90) return chalk.green;
@@ -20,8 +21,8 @@ function scoreColor(score: number): typeof chalk {
 
 export const crawlCommand = new Command("crawl")
   .description("Crawl a live site, audit every page, check sitemap, robots.txt, and assets")
-  .argument("<url>", "URL to start crawling (e.g., https://yoursite.com)")
-  .option("--max-pages <n>", "Maximum pages to crawl", "200")
+  .argument("[url]", "URL to start crawling (auto-detected from seo.config if omitted)")
+  .option("--max-pages <n>", "Maximum pages to crawl", "500")
   .option("--max-depth <n>", "Maximum link depth", "5")
   .option("--delay <ms>", "Delay between requests in ms", "200")
   .option("--json", "Output results as JSON", false)
@@ -32,11 +33,28 @@ export const crawlCommand = new Command("crawl")
   .option("--ignore <patterns>", "Comma-separated path patterns to exclude from analysis (e.g. /app/*,/admin/*)")
   .option("--push", "Push results to Indxel dashboard", false)
   .option("--api-key <key>", "API key for --push (or set INDXEL_API_KEY env var)")
-  .action(async (url: string, opts) => {
+  .action(async (urlArg: string | undefined, opts) => {
     const jsonOutput = opts.json;
-    const maxPages = parseInt(opts.maxPages, 10);
     const maxDepth = parseInt(opts.maxDepth, 10);
     const delay = parseInt(opts.delay, 10);
+
+    const maxPages = parseInt(opts.maxPages, 10);
+
+    // Resolve URL: argument > seo.config > .indxelrc > package.json
+    let url = urlArg;
+    if (!url) {
+      const detected = await resolveProjectUrl(process.cwd());
+      if (detected) {
+        url = detected;
+        if (!jsonOutput) {
+          console.log(chalk.dim(`  Using URL from project config: ${url}`));
+        }
+      } else {
+        console.error(chalk.red("  No URL provided and none found in seo.config or .indxelrc.json."));
+        console.error(chalk.dim("  Usage: npx indxel crawl [url]"));
+        process.exit(1);
+      }
+    }
 
     // Ensure URL has protocol
     if (!url.startsWith("http://") && !url.startsWith("https://")) {
@@ -450,6 +468,7 @@ export const crawlCommand = new Command("crawl")
               Authorization: `Bearer ${apiKey}`,
             },
             body: JSON.stringify({
+              url,
               crawl: crawlResult,
               robots: robotsResult,
               sitemap: sitemapComparison,
@@ -468,6 +487,13 @@ export const crawlCommand = new Command("crawl")
         }
         if (!jsonOutput) console.log("");
       }
+    }
+
+    // Nudge: save results to dashboard (only if --push was NOT used)
+    if (!opts.push && !jsonOutput) {
+      console.log(chalk.dim("  Save & compare crawls → ") + chalk.bold("npx indxel crawl --push"));
+      console.log(chalk.dim("  Submit to Google       → ") + chalk.bold("npx indxel index"));
+      console.log("");
     }
 
     // Exit code

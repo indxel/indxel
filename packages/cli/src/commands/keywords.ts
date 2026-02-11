@@ -2,6 +2,7 @@ import { Command } from "commander";
 import chalk from "chalk";
 import ora from "ora";
 import { researchKeywords, crawlSite, analyzeContentGaps } from "indxel";
+import { resolveApiKey } from "../store.js";
 
 export const keywordsCommand = new Command("keywords")
   .description("Research keyword opportunities and find content gaps")
@@ -10,9 +11,24 @@ export const keywordsCommand = new Command("keywords")
   .option("--country <country>", "Country code", "us")
   .option("--site <url>", "Site URL to analyze content gaps against")
   .option("--max-pages <n>", "Maximum pages to crawl for gap analysis", "30")
+  .option("--api-key <key>", "Indxel API key (or set INDXEL_API_KEY / run npx indxel link)")
   .option("--json", "Output results as JSON", false)
   .action(async (seed: string, opts) => {
     const jsonOutput = opts.json;
+
+    // Gate: keyword research requires a linked project (free account)
+    const apiKey = await resolveApiKey(opts.apiKey);
+    if (!apiKey) {
+      console.log("");
+      console.log(chalk.bold("  indxel keywords") + chalk.dim(" — requires a free account"));
+      console.log("");
+      console.log(chalk.dim("  Keyword research is free but requires a linked project."));
+      console.log(chalk.dim("  Create a free account in 30 seconds:"));
+      console.log("");
+      console.log(chalk.bold("    npx indxel link"));
+      console.log("");
+      process.exit(1);
+    }
 
     if (!jsonOutput) {
       console.log("");
@@ -131,6 +147,12 @@ export const keywordsCommand = new Command("keywords")
           console.log("");
         }
       }
+    }
+
+    // Nudge: content gap analysis if --site wasn't used
+    if (!jsonOutput && !opts.site) {
+      console.log(chalk.dim("  Find content gaps → ") + chalk.bold(`npx indxel keywords "${seed}" --site yoursite.com`));
+      console.log("");
     }
 
     // JSON output

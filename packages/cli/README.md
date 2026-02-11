@@ -46,7 +46,7 @@ npx indxel-cli index https://yoursite.com
 
 ### `indxel init`
 
-Scaffold SEO boilerplate in your Next.js project.
+Scaffold SEO boilerplate in your project (Next.js, Nuxt, Remix, Astro, SvelteKit).
 
 ```bash
 npx indxel-cli init
@@ -341,7 +341,7 @@ Blocks `git push` if critical SEO errors are found. No CI setup required.
 ## Requirements
 
 - Node.js >= 18
-- Next.js App Router project (`app/` or `src/app/` directory) for `check` and `init`
+- Supported frameworks for `check` and `init`: Next.js (App Router), Nuxt 3, Remix, Astro, SvelteKit
 - Any website for `crawl`, `index`, and `keywords`
 
 ---

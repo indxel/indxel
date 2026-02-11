@@ -4,6 +4,7 @@ import ora from "ora";
 import { fetchSitemap, fetchRobots } from "indxel";
 import { checkPlan } from "../auth.js";
 import { loadIndexNowKey, resolveApiKey } from "../store.js";
+import { resolveProjectUrl } from "../config.js";
 
 function delay(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
@@ -11,12 +12,12 @@ function delay(ms: number): Promise<void> {
 
 export const indexCommand = new Command("index")
   .description("Submit your pages to search engines and check indexation status")
-  .argument("<url>", "Site URL (e.g., https://yoursite.com)")
+  .argument("[url]", "Site URL (auto-detected from seo.config if omitted)")
   .option("--check", "Check which pages appear indexed (Pro+)", false)
   .option("--indexnow-key <key>", "IndexNow key (auto-detected from .indxel/ if not specified)")
   .option("--api-key <key>", "Indxel API key (required for --check and IndexNow submission)")
   .option("--json", "Output results as JSON", false)
-  .action(async (url: string, opts) => {
+  .action(async (urlArg: string | undefined, opts) => {
     const jsonOutput = opts.json;
     const needsPaid = opts.check;
 
@@ -28,6 +29,20 @@ export const indexCommand = new Command("index")
     // Helper: create spinner only in human-readable mode
     function spin(text: string) {
       return jsonOutput ? null : ora(text).start();
+    }
+
+    // Resolve URL: argument > seo.config > .indxelrc > package.json
+    let url = urlArg;
+    if (!url) {
+      const detected = await resolveProjectUrl(process.cwd());
+      if (detected) {
+        url = detected;
+        log(chalk.dim(`  Using URL from project config: ${url}`));
+      } else {
+        console.error(chalk.red("  No URL provided and none found in seo.config or .indxelrc.json."));
+        console.error(chalk.dim("  Usage: npx indxel index [url]"));
+        process.exit(1);
+      }
     }
 
     // Ensure URL has protocol

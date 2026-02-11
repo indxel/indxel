@@ -1,4 +1,11 @@
 import { defineConfig } from "tsup";
+import pkg from "./package.json" with { type: "json" };
+
+const shared = {
+  define: {
+    __CLI_VERSION__: JSON.stringify(pkg.version),
+  },
+};
 
 export default defineConfig([
   {
@@ -8,6 +15,7 @@ export default defineConfig([
     clean: true,
     splitting: false,
     sourcemap: true,
+    ...shared,
   },
   {
     entry: { bin: "src/bin.ts" },
@@ -19,5 +27,6 @@ export default defineConfig([
     banner: {
       js: "#!/usr/bin/env node",
     },
+    ...shared,
   },
 ]);

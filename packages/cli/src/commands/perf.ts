@@ -2,8 +2,17 @@ import { Command } from "commander";
 import chalk from "chalk";
 import ora from "ora";
 import { fetchSitemap } from "indxel";
+import { resolveProjectUrl } from "../config.js";
+import { resolveApiKey } from "../store.js";
 
 // --- Types ---
+
+interface PsiDiagnostic {
+  id: string;
+  title: string;
+  displayValue?: string;
+  savingsMs?: number;
+}
 
 interface PsiMetrics {
   performanceScore: number;
@@ -13,6 +22,7 @@ interface PsiMetrics {
   fcp: number;
   si: number;
   tbt: number;
+  diagnostics: PsiDiagnostic[];
 }
 
 interface PageResult {
@@ -75,7 +85,46 @@ function delay(ms: number): Promise<void> {
 
 // --- PSI API ---
 
+/**
+ * Fetch PSI metrics. Tries indxel backend first (uses our API key),
+ * falls back to direct Google PSI API if no indxel API key.
+ */
 export async function fetchPsi(
+  url: string,
+  strategy: "mobile" | "desktop",
+  apiKey?: string | null,
+): Promise<PsiMetrics> {
+  // 1. Try via indxel backend (proxied, no user API key needed for Google)
+  if (apiKey) {
+    const backendUrl = process.env.INDXEL_API_URL || "https://indxel.com";
+    const res = await fetch(`${backendUrl}/api/cli/perf`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({ url, strategy }),
+      signal: AbortSignal.timeout(60000),
+    });
+
+    if (res.ok) {
+      return await res.json() as PsiMetrics;
+    }
+
+    // If backend fails with auth error, don't fallback
+    if (res.status === 401 || res.status === 403) {
+      const data = await res.json().catch(() => ({ error: "Auth failed" })) as { error?: string };
+      throw new Error(data.error || `Backend returned ${res.status}`);
+    }
+    // Other errors (502, etc.) → fallback to direct
+  }
+
+  // 2. Fallback: direct Google PSI API
+  return fetchPsiDirect(url, strategy);
+}
+
+/** Direct call to Google PSI API (rate-limited by IP or user's own key) */
+export async function fetchPsiDirect(
   url: string,
   strategy: "mobile" | "desktop",
 ): Promise<PsiMetrics> {
@@ -109,6 +158,31 @@ export function parsePsiResponse(data: any): PsiMetrics {
   const perfScore = lr.categories?.performance?.score;
   if (perfScore == null) throw new Error("No performance score in PSI response");
 
+  // Extract opportunities & diagnostics
+  const diagnostics: PsiDiagnostic[] = [];
+  const auditRefs: Array<{ id: string; group?: string }> =
+    lr.categories?.performance?.auditRefs ?? [];
+  const metricIds = new Set([
+    "largest-contentful-paint", "cumulative-layout-shift", "interaction-to-next-paint",
+    "first-contentful-paint", "speed-index", "total-blocking-time",
+  ]);
+
+  for (const ref of auditRefs) {
+    if (metricIds.has(ref.id)) continue;
+    if (ref.group !== "diagnostics" && ref.group !== "load-opportunities" && ref.group !== "budgets") continue;
+    const audit = lr.audits?.[ref.id];
+    if (!audit || audit.score === 1 || audit.scoreDisplayMode === "notApplicable") continue;
+
+    diagnostics.push({
+      id: ref.id,
+      title: audit.title ?? ref.id,
+      displayValue: audit.displayValue || undefined,
+      savingsMs: audit.details?.overallSavingsMs as number | undefined,
+    });
+  }
+
+  diagnostics.sort((a, b) => (b.savingsMs ?? 0) - (a.savingsMs ?? 0));
+
   return {
     performanceScore: Math.round(perfScore * 100),
     lcp: lr.audits?.["largest-contentful-paint"]?.numericValue ?? 0,
@@ -117,6 +191,7 @@ export function parsePsiResponse(data: any): PsiMetrics {
     fcp: lr.audits?.["first-contentful-paint"]?.numericValue ?? 0,
     si: lr.audits?.["speed-index"]?.numericValue ?? 0,
     tbt: lr.audits?.["total-blocking-time"]?.numericValue ?? 0,
+    diagnostics,
   };
 }
 
@@ -203,6 +278,22 @@ function printPageResult(result: PageResult) {
     `    ${formatMs(metrics.tbt).padEnd(9)} ${chalk.dim("TBT  Total Blocking Time")}`,
   );
   console.log("");
+
+  // Diagnostics
+  if (metrics.diagnostics.length > 0) {
+    console.log(chalk.bold("  Diagnostics"));
+    for (const d of metrics.diagnostics) {
+      const icon = d.savingsMs != null && d.savingsMs > 0
+        ? chalk.yellow("⚡")
+        : chalk.dim("ℹ");
+      const savings = d.savingsMs != null && d.savingsMs > 0
+        ? chalk.yellow(` -${formatMs(d.savingsMs)}`)
+        : "";
+      const display = d.displayValue ? chalk.dim(` (${d.displayValue})`) : "";
+      console.log(`  ${icon} ${d.title}${display}${savings}`);
+    }
+    console.log("");
+  }
 }
 
 function printMultiPageSummary(results: PageResult[]) {
@@ -243,7 +334,7 @@ function printMultiPageSummary(results: PageResult[]) {
 
 export const perfCommand = new Command("perf")
   .description("Test Core Web Vitals and performance via PageSpeed Insights")
-  .argument("<url>", "URL to test (e.g., https://yoursite.com)")
+  .argument("[url]", "URL to test (auto-detected from seo.config if omitted)")
   .option(
     "--strategy <strategy>",
     "Testing strategy: mobile or desktop",
@@ -258,16 +349,37 @@ export const perfCommand = new Command("perf")
   .option("--budget-lcp <ms>", "Fail if LCP exceeds threshold (ms)")
   .option("--budget-cls <score>", "Fail if CLS exceeds threshold")
   .option("--budget-score <n>", "Fail if perf score below threshold")
-  .action(async (url: string, opts) => {
+  .option("--api-key <key>", "Indxel API key (uses our backend for PSI, or set INDXEL_API_KEY)")
+  .action(async (urlArg: string | undefined, opts) => {
     const jsonOutput = opts.json;
     const strategy = opts.strategy as "mobile" | "desktop";
     const pageCount = parseInt(opts.pages, 10);
+
+    // Resolve API key for proxied PSI calls
+    const apiKey = await resolveApiKey(opts.apiKey);
 
     if (strategy !== "mobile" && strategy !== "desktop") {
       console.error(
         chalk.red("  --strategy must be 'mobile' or 'desktop'"),
       );
       process.exit(1);
+    }
+
+    // Resolve URL: argument > seo.config > .indxelrc > package.json
+    let url = urlArg;
+    if (!url) {
+      const detected = await resolveProjectUrl(process.cwd());
+      if (detected) {
+        url = detected;
+        if (!jsonOutput) {
+          console.log(chalk.dim(`  Using URL from project config: ${url}`));
+          console.log("");
+        }
+      } else {
+        console.error(chalk.red("  No URL provided and none found in seo.config or .indxelrc.json."));
+        console.error(chalk.dim("  Usage: npx indxel perf [url]"));
+        process.exit(1);
+      }
     }
 
     // Ensure URL has protocol
@@ -314,7 +426,7 @@ export const perfCommand = new Command("perf")
           ).start();
 
       try {
-        const metrics = await fetchPsi(targetUrl, strategy);
+        const metrics = await fetchPsi(targetUrl, strategy, apiKey);
         spinner?.stop();
         results.push({ url: targetUrl, strategy, metrics });
 
@@ -416,5 +528,12 @@ export const perfCommand = new Command("perf")
         }
         process.exit(1);
       }
+    }
+
+    // Nudge: CI guard for performance budgets
+    if (!jsonOutput && !hasBudgets) {
+      console.log(chalk.dim("  Enforce budgets in CI → ") + chalk.bold("npx indxel perf --budget-score 80 --budget-lcp 2500"));
+      console.log(chalk.dim("  Full SEO + perf audit → ") + chalk.bold("npx indxel crawl"));
+      console.log("");
     }
   });
