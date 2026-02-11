@@ -1,6 +1,6 @@
 {
   "name": "indxel-cli",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "CLI for SEO validation in Next.js projects. Init, check, diff, CI/CD mode.",
   "type": "module",
   "bin": {

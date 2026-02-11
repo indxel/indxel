@@ -85,6 +85,9 @@ export async function fetchPsi(
     category: "performance",
   });
 
+  const apiKey = process.env.PSI_API_KEY;
+  if (apiKey) params.set("key", apiKey);
+
   const res = await fetch(
     `https://www.googleapis.com/pagespeedonline/v5/runPagespeed?${params}`,
     { signal: AbortSignal.timeout(60000) },

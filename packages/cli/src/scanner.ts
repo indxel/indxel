@@ -275,6 +275,28 @@ function extractStaticMetadata(source: string): ResolvedMetadata {
     }
   }
 
+  // --- Fallback: detect fields set via variable references ---
+  // When metadata values come from imported config (e.g., siteConfig.xxx),
+  // regex can't extract the string value, but we know the field is present.
+  // This is critical for layout-to-page merge to cascade correctly.
+  if (!meta.title && /(?:^|[,{\n])\s*title\s*:\s*(?:\{|[a-zA-Z_$])/.test(metaBlock)) {
+    meta.title = "[detected]";
+  }
+  if (!meta.description && /(?:^|[,{\n])\s*description\s*:\s*[a-zA-Z_$]/.test(metaBlock)) {
+    meta.description = "[detected]";
+  }
+  if (/openGraph\s*:\s*\{/.test(metaBlock)) {
+    if (!meta.ogTitle) meta.ogTitle = "[detected]";
+    if (!meta.ogDescription) meta.ogDescription = "[detected]";
+    if (!meta.ogImage) meta.ogImage = "[detected]";
+  }
+  if (/twitter\s*:\s*\{/.test(metaBlock)) {
+    if (!meta.twitterCard) meta.twitterCard = "[detected]";
+  }
+  if (/alternates\s*:\s*\{/.test(metaBlock) && !meta.canonical) {
+    if (/canonical\s*:/.test(metaBlock)) meta.canonical = "[detected]";
+  }
+
   // Check for structured data — search full source (JSON-LD can be in JSX, not metadata)
   if (/application\/ld\+json/.test(source) || /generateLD/.test(source) || /JsonLD/.test(source)) {
     meta.structuredData = [{ "@context": "https://schema.org", "@type": "detected" }];
