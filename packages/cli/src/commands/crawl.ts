@@ -442,7 +442,7 @@ export const crawlCommand = new Command("crawl")
       } else {
         const pushSpinner = jsonOutput ? null : ora("Pushing results to Indxel...").start();
         try {
-          const pushUrl = process.env.INDXEL_API_URL || "https://www.indxel.com";
+          const pushUrl = process.env.INDXEL_API_URL || "https://indxel.com";
           const res = await fetch(`${pushUrl}/api/cli/push`, {
             method: "POST",
             headers: {

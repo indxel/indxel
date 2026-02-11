@@ -25,7 +25,7 @@ export const linkCommand = new Command("link")
   .description("Link this project to your Indxel dashboard for monitoring")
   .option("--api-key <key>", "Link directly with an API key (skip browser flow)")
   .action(async (opts) => {
-    const apiUrl = process.env.INDXEL_API_URL || "https://www.indxel.com";
+    const apiUrl = process.env.INDXEL_API_URL || "https://indxel.com";
     const cwd = process.cwd();
 
     console.log("");
@@ -61,7 +61,8 @@ export const linkCommand = new Command("link")
           process.exit(1);
         }
 
-        const project = (await res.json()) as { id: string; name: string };
+        const body = (await res.json()) as { project: { id: string; name: string } };
+        const project = body.project;
         spinner.succeed(`Linked to ${chalk.bold(project.name)}`);
 
         await saveProjectConfig(cwd, {
