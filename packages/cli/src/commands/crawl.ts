@@ -25,18 +25,21 @@ export const crawlCommand = new Command("crawl")
   .option("--max-pages <n>", "Maximum pages to crawl", "500")
   .option("--max-depth <n>", "Maximum link depth", "5")
   .option("--delay <ms>", "Delay between requests in ms", "200")
+  .option("--concurrency <n>", "Number of pages to crawl in parallel", "1")
   .option("--json", "Output results as JSON", false)
   .option("--strict", "Treat warnings as errors", false)
   .option("--skip-assets", "Skip asset verification", false)
   .option("--skip-sitemap", "Skip sitemap check", false)
   .option("--skip-robots", "Skip robots.txt check", false)
   .option("--ignore <patterns>", "Comma-separated path patterns to exclude from analysis (e.g. /app/*,/admin/*)")
-  .option("--push", "Push results to Indxel dashboard", false)
-  .option("--api-key <key>", "API key for --push (or set INDXEL_API_KEY env var)")
+  .option("--push", "Push results to Indxel dashboard (auto if project is linked)")
+  .option("--no-push", "Disable auto-push even if project is linked")
+  .option("--api-key <key>", "API key for dashboard (or set INDXEL_API_KEY env var)")
   .action(async (urlArg: string | undefined, opts) => {
     const jsonOutput = opts.json;
     const maxDepth = parseInt(opts.maxDepth, 10);
     const delay = parseInt(opts.delay, 10);
+    const concurrency = parseInt(opts.concurrency, 10);
 
     const maxPages = parseInt(opts.maxPages, 10);
 
@@ -105,6 +108,7 @@ export const crawlCommand = new Command("crawl")
       maxPages,
       maxDepth,
       delay,
+      concurrency,
       strict: opts.strict,
       ignorePatterns,
       onPageCrawled: (page: CrawledPage) => {
@@ -305,6 +309,14 @@ export const crawlCommand = new Command("crawl")
         if (a.brokenInternalLinks.length > 10) console.log(chalk.dim(`  ...and ${a.brokenInternalLinks.length - 10} more`));
         console.log("");
       }
+      if (a.nonHtmlInternalResources && a.nonHtmlInternalResources.length > 0) {
+        console.log(chalk.bold("- Non-HTML internal resources") + chalk.dim(" (valid, not broken)"));
+        for (const r of a.nonHtmlInternalResources.slice(0, 5)) {
+          console.log(chalk.dim(`  ℹ ${r}`));
+        }
+        if (a.nonHtmlInternalResources.length > 5) console.log(chalk.dim(`  ...and ${a.nonHtmlInternalResources.length - 5} more`));
+        console.log("");
+      }
 
       // Broken external links
       if (a.brokenExternalLinks.length > 0) {
@@ -313,6 +325,10 @@ export const crawlCommand = new Command("crawl")
           console.log(chalk.red(`  ✗ ${bl.to}`) + chalk.dim(` ← linked from ${bl.from} (${bl.status})`));
         }
         if (a.brokenExternalLinks.length > 10) console.log(chalk.dim(`  ...and ${a.brokenExternalLinks.length - 10} more`));
+        console.log("");
+      }
+      if (a.externalLinksBlocked403 && a.externalLinksBlocked403 > 0) {
+        console.log(chalk.dim(`  ℹ ${a.externalLinksBlocked403} external link${a.externalLinksBlocked403 > 1 ? "s" : ""} returned 403 (bot-blocked, not shown)`));
         console.log("");
       }
 
@@ -445,16 +461,19 @@ export const crawlCommand = new Command("crawl")
       console.log("");
     }
 
-    // 8. Push to dashboard
-    if (opts.push) {
-      const apiKey = await resolveApiKey(opts.apiKey);
-      if (!apiKey) {
+    // 8. Push to dashboard + auto-submit indexation
+    // --push: force push | --no-push: disable | neither: auto-push if linked
+    const apiKey = await resolveApiKey(opts.apiKey);
+    const forcePush = opts.push === true;
+    const noPush = opts.push === false;
+    const shouldPush = apiKey && !noPush;
+    let pushAutoSubmit: string | null = null;
+
+    if (shouldPush) {
+      // Skip auto-push if check has errors (don't submit broken SEO). --push forces it.
+      if (crawlResult.totalErrors > 0 && !forcePush) {
         if (!jsonOutput) {
-          console.log(chalk.yellow("  ⚠") + " To push results to your dashboard, link your project first:");
-          console.log("");
-          console.log(chalk.bold("    npx indxel link"));
-          console.log("");
-          console.log(chalk.dim("  Or use --api-key / set INDXEL_API_KEY."));
+          console.log(chalk.yellow("  ⚠ Skipping auto-push — ") + chalk.dim(`${crawlResult.totalErrors} error${crawlResult.totalErrors > 1 ? "s" : ""} found. Fix errors first or use --push to force.`));
           console.log("");
         }
       } else {
@@ -476,8 +495,12 @@ export const crawlCommand = new Command("crawl")
             }),
           });
           if (res.ok) {
-            const data = (await res.json()) as { checkId?: string };
-            if (pushSpinner) pushSpinner.succeed(`Pushed to dashboard — check ${data.checkId}`);
+            const data = (await res.json()) as { checkId?: string; autoSubmit?: string | null };
+            pushAutoSubmit = data.autoSubmit ?? null;
+            if (pushSpinner) {
+              const autoMsg = pushAutoSubmit === "queued" ? " — indexation queued (IndexNow + Google)" : "";
+              pushSpinner.succeed(`Pushed to dashboard — check ${data.checkId}${autoMsg}`);
+            }
           } else {
             const data = (await res.json().catch(() => ({}))) as { error?: string };
             if (pushSpinner) pushSpinner.fail(`Push failed: ${data.error || res.statusText}`);
@@ -487,12 +510,19 @@ export const crawlCommand = new Command("crawl")
         }
         if (!jsonOutput) console.log("");
       }
+    } else if (!apiKey && !jsonOutput) {
+      // No API key — nudge to link, occasionally mention Google auto-indexing
+      if (crawlResult.totalErrors === 0 && Math.random() < 0.33) {
+        console.log(chalk.dim("  Auto-index into Google after every deploy → ") + chalk.bold("indxel.com/pricing"));
+      } else {
+        console.log(chalk.dim("  Auto-push & index → ") + chalk.bold("npx indxel link") + chalk.dim(" (one-time setup)"));
+      }
+      console.log("");
     }
 
-    // Nudge: save results to dashboard (only if --push was NOT used)
-    if (!opts.push && !jsonOutput) {
-      console.log(chalk.dim("  Save & compare crawls → ") + chalk.bold("npx indxel crawl --push"));
-      console.log(chalk.dim("  Submit to Google       → ") + chalk.bold("npx indxel index"));
+    // 9. Occasional nudge for linked users without auto-submit
+    if (!jsonOutput && shouldPush && pushAutoSubmit !== "queued" && crawlResult.totalErrors === 0 && Math.random() < 0.33) {
+      console.log(chalk.dim("  Auto-index into Google after every check → ") + chalk.bold("indxel.com/pricing"));
       console.log("");
     }
 

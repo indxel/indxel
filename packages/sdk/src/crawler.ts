@@ -13,6 +13,8 @@ export interface CrawlOptions {
   maxDepth?: number;
   /** Delay between requests in ms (default: 500) */
   delay?: number;
+  /** Number of pages to crawl in parallel (default: 1) */
+  concurrency?: number;
   /** Max retries on 503/429 errors (default: 2) */
   retries?: number;
   /** Request timeout in ms (default: 15000) */
@@ -98,6 +100,10 @@ export interface CrawlAnalysis {
   imageAltIssues: Array<{ url: string; total: number; missingAlt: number }>;
   /** Images that return errors (404, timeout, etc.) */
   brokenImages: Array<{ src: string; pages: string[]; status: number | string }>;
+  /** Number of external links that returned 403 (likely bot-blocked, excluded from brokenExternalLinks) */
+  externalLinksBlocked403: number;
+  /** Internal non-HTML resources (e.g. .txt, .xml) that were excluded from broken link check */
+  nonHtmlInternalResources: string[];
 }
 
 const BROWSER_UA = "Mozilla/5.0 (compatible; Indxel/0.1; +https://indxel.com/bot)";
@@ -106,6 +112,7 @@ const DEFAULT_OPTIONS: Required<Omit<CrawlOptions, "onPageCrawled" | "strict">> 
   maxPages: 500,
   maxDepth: 5,
   delay: 500,
+  concurrency: 1,
   timeout: 15000,
   retries: 2,
   userAgent: BROWSER_UA,
@@ -150,57 +157,81 @@ export async function crawlSite(
     // Sitemap fetch failed — continue with link-following only
   }
 
-  while (queue.length > 0 && pages.length < opts.maxPages) {
-    const item = queue.shift();
-    if (!item) break;
+  // Concurrent worker pool — N workers pull from the shared queue
+  const workerCount = Math.max(1, opts.concurrency);
+  let activeWorkers = 0;
 
-    const { url, depth } = item;
-    if (visited.has(url)) continue;
-    if (depth > opts.maxDepth) {
-      skippedUrls.push(url);
-      continue;
+  async function worker(workerId: number): Promise<void> {
+    // Stagger start: spread workers across the delay window
+    if (workerId > 0 && opts.delay > 0) {
+      await sleep((opts.delay / workerCount) * workerId);
     }
 
-    // Skip non-page resources
-    if (isAssetUrl(url)) {
-      continue;
-    }
+    activeWorkers++;
+    try {
+      while (pages.length < opts.maxPages) {
+        const item = queue.shift();
+        if (!item) break;
 
-    visited.add(url);
+        const { url, depth } = item;
+        if (visited.has(url)) continue;
+        if (depth > opts.maxDepth) {
+          skippedUrls.push(url);
+          continue;
+        }
 
-    let page = await crawlPage(url, depth, opts);
+        // Skip non-page resources
+        if (isAssetUrl(url)) {
+          continue;
+        }
 
-    // Retry on 503/429 with exponential backoff
-    if (page.status && (page.status === 503 || page.status === 429)) {
-      for (let attempt = 1; attempt <= opts.retries; attempt++) {
-        const backoff = opts.delay * Math.pow(2, attempt); // 1s, 2s, ...
-        await sleep(backoff);
-        page = await crawlPage(url, depth, opts);
-        if (!page.status || (page.status !== 503 && page.status !== 429)) break;
-      }
-    }
+        visited.add(url);
 
-    pages.push(page);
+        let page = await crawlPage(url, depth, opts);
 
-    if (opts.onPageCrawled) {
-      opts.onPageCrawled(page);
-    }
+        // Retry on 503/429 with exponential backoff
+        if (page.status && (page.status === 503 || page.status === 429)) {
+          for (let attempt = 1; attempt <= opts.retries; attempt++) {
+            const backoff = opts.delay * Math.pow(2, attempt);
+            await sleep(backoff);
+            page = await crawlPage(url, depth, opts);
+            if (!page.status || (page.status !== 503 && page.status !== 429)) break;
+          }
+        }
 
-    // Queue internal links
-    if (!page.error) {
-      for (const link of page.internalLinks) {
-        const normalized = normalizeUrl(link);
-        if (!visited.has(normalized) && !isAssetUrl(normalized)) {
-          queue.push({ url: normalized, depth: depth + 1 });
+        pages.push(page);
+
+        if (opts.onPageCrawled) {
+          opts.onPageCrawled(page);
+        }
+
+        // Queue internal links
+        if (!page.error) {
+          for (const link of page.internalLinks) {
+            const normalized = normalizeUrl(link);
+            if (!visited.has(normalized) && !isAssetUrl(normalized)) {
+              queue.push({ url: normalized, depth: depth + 1 });
+            }
+          }
+        }
+
+        // Polite delay with jitter to avoid rate-limit patterns
+        if (opts.delay > 0) {
+          const jitter = Math.floor(Math.random() * opts.delay * 0.5);
+          await sleep(opts.delay + jitter);
         }
       }
+    } finally {
+      activeWorkers--;
     }
+  }
 
-    // Polite delay with jitter to avoid rate-limit patterns
-    if (queue.length > 0 && opts.delay > 0) {
-      const jitter = Math.floor(Math.random() * opts.delay * 0.5);
-      await sleep(opts.delay + jitter);
-    }
+  // Launch all workers concurrently
+  await Promise.all(Array.from({ length: workerCount }, (_, i) => worker(i)));
+
+  // Trim excess pages if concurrency caused overshoot
+  if (pages.length > opts.maxPages) {
+    pages.splice(opts.maxPages);
   }
 
   // Collect remaining queued URLs as skipped
@@ -281,17 +312,22 @@ async function analyzeCrawl(pages: CrawledPage[], ignorePatterns: string[] = [])
     else if (p.h1s.length > 1) h1Issues.push({ url: p.url, issue: "multiple", count: p.h1s.length });
   }
 
-  // 4. Broken internal links
+  // 4. Broken internal links (skip non-HTML 200 responses — .txt, .xml, etc. are valid)
   const brokenInternalLinks: CrawlAnalysis["brokenInternalLinks"] = [];
+  const nonHtmlSet = new Set<string>();
   for (const p of valid) {
     for (const link of p.internalLinks) {
       const normalized = normalizeUrl(link);
-      const errorPage = pages.find((pg) => pg.url === normalized && pg.error);
-      if (errorPage) {
-        brokenInternalLinks.push({ from: p.url, to: normalized, status: errorPage.status || errorPage.error! });
+      const linkedPage = pages.find((pg) => pg.url === normalized && pg.error);
+      if (!linkedPage) continue;
+      if (linkedPage.error!.startsWith("Not HTML")) {
+        nonHtmlSet.add(normalized);
+      } else {
+        brokenInternalLinks.push({ from: p.url, to: normalized, status: linkedPage.status || linkedPage.error! });
       }
     }
   }
+  const nonHtmlInternalResources = [...nonHtmlSet];
 
   // 5. Redirects
   const redirects = pages
@@ -338,7 +374,7 @@ async function analyzeCrawl(pages: CrawledPage[], ignorePatterns: string[] = [])
     .map(([type, count]) => ({ type, count }))
     .sort((a, b) => b.count - a.count);
 
-  // 11. Broken external links (batch HEAD requests)
+  // 11. Broken external links (batch HEAD requests, GET fallback for 403/405)
   const allExternalLinks = new Map<string, string[]>(); // url -> pages linking to it
   for (const p of valid) {
     for (const link of p.externalLinks) {
@@ -347,30 +383,55 @@ async function analyzeCrawl(pages: CrawledPage[], ignorePatterns: string[] = [])
     }
   }
   const brokenExternalLinks: CrawlAnalysis["brokenExternalLinks"] = [];
+  let externalLinksBlocked403 = 0;
   const externalEntries = [...allExternalLinks.entries()];
   const batchSize = 10;
   for (let i = 0; i < externalEntries.length; i += batchSize) {
     const batch = externalEntries.slice(i, i + batchSize);
     const results = await Promise.all(
-      batch.map(async ([url, fromPages]) => {
+      batch.map(async ([url, fromPages]): Promise<{ broken: CrawlAnalysis["brokenExternalLinks"]; blocked: number }> => {
         try {
           validatePublicUrl(url);
           const res = await safeFetch(url, {
             method: "HEAD",
-            headers: { "User-Agent": "Indxel/0.1 (SEO crawler)" },
+            headers: { "User-Agent": BROWSER_UA },
             signal: AbortSignal.timeout(10000),
           });
-          if (!res.ok) {
-            return fromPages.map((from) => ({ from, to: url, status: res.status as number | string }));
+          if (res.ok) return { broken: [], blocked: 0 };
+
+          // HEAD returned 403/405 — retry with GET (many servers block HEAD or bot UAs)
+          if (res.status === 403 || res.status === 405) {
+            try {
+              const getRes = await safeFetch(url, {
+                method: "GET",
+                headers: {
+                  "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                  "Accept": "text/html,application/xhtml+xml,*/*",
+                },
+                signal: AbortSignal.timeout(10000),
+              });
+              // Consume body to avoid memory leaks
+              await getRes.text().catch(() => {});
+              if (getRes.ok) return { broken: [], blocked: 0 }; // Link works with browser-like UA — not broken
+            } catch {
+              // GET also failed — fall through
+            }
           }
-          return [];
+
+          // 403 after GET fallback — likely bot-blocking, not a real broken link
+          if (res.status === 403) return { broken: [], blocked: 1 };
+
+          return { broken: fromPages.map((from) => ({ from, to: url, status: res.status as number | string })), blocked: 0 };
         } catch (err) {
           const errMsg = err instanceof Error ? err.message : String(err);
-          return fromPages.map((from) => ({ from, to: url, status: errMsg as number | string }));
+          return { broken: fromPages.map((from) => ({ from, to: url, status: errMsg as number | string })), blocked: 0 };
         }
       }),
     );
-    brokenExternalLinks.push(...results.flat());
+    for (const r of results) {
+      brokenExternalLinks.push(...r.broken);
+      externalLinksBlocked403 += r.blocked;
+    }
   }
 
   // 12. Image alt text issues
@@ -429,7 +490,7 @@ async function analyzeCrawl(pages: CrawledPage[], ignorePatterns: string[] = [])
     duplicateTitles, duplicateDescriptions, h1Issues,
     brokenInternalLinks, brokenExternalLinks, redirects, thinContentPages,
     internalLinkGraph, orphanPages, slowestPages, structuredDataSummary, imageAltIssues,
-    brokenImages,
+    brokenImages, externalLinksBlocked403, nonHtmlInternalResources,
   };
 }
 

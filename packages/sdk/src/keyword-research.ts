@@ -59,12 +59,15 @@ export async function researchKeywords(
   const doQuestions = options?.questionKeywords !== false;
   const doPrepositions = options?.prepositionKeywords !== false;
 
+  const seedWords = seed.toLowerCase().trim().split(/\s+/).filter((w) => w.length > 0);
   const allSuggestions = new Map<string, KeywordSuggestion>();
 
   // 1. Direct autocomplete
   const direct = await fetchSuggestions(seed, locale, country, timeout);
   for (const kw of direct) {
-    addSuggestion(allSuggestions, kw, "autocomplete");
+    if (isRelevantToSeed(kw, seedWords)) {
+      addSuggestion(allSuggestions, kw, "autocomplete");
+    }
   }
 
   // 2. Alphabet expansion: "seed a", "seed b", ...
@@ -77,7 +80,9 @@ export async function researchKeywords(
     const alphabetResults = await Promise.all(alphabetPromises);
     for (const { results } of alphabetResults) {
       for (const kw of results) {
-        addSuggestion(allSuggestions, kw, "alphabet");
+        if (isRelevantToSeed(kw, seedWords)) {
+          addSuggestion(allSuggestions, kw, "alphabet");
+        }
       }
     }
   }
@@ -93,9 +98,11 @@ export async function researchKeywords(
     const questionResults = await Promise.all(questionPromises);
     for (const { results } of questionResults) {
       for (const kw of results) {
-        const suggestion: KeywordSuggestion = { keyword: kw, source: "question" };
-        questions.push(suggestion);
-        allSuggestions.set(kw.toLowerCase(), suggestion);
+        if (isRelevantToSeed(kw, seedWords)) {
+          const suggestion: KeywordSuggestion = { keyword: kw, source: "question" };
+          questions.push(suggestion);
+          allSuggestions.set(kw.toLowerCase(), suggestion);
+        }
       }
     }
   }
@@ -110,7 +117,9 @@ export async function researchKeywords(
     const prepResults = await Promise.all(prepPromises);
     for (const { results } of prepResults) {
       for (const kw of results) {
-        addSuggestion(allSuggestions, kw, "preposition");
+        if (isRelevantToSeed(kw, seedWords)) {
+          addSuggestion(allSuggestions, kw, "preposition");
+        }
       }
     }
   }
@@ -186,4 +195,21 @@ function addSuggestion(
   if (key && !map.has(key)) {
     map.set(key, { keyword: key, source });
   }
+}
+
+/**
+ * Check if a suggestion is relevant to the seed keyword.
+ * Filters out suggestions where seed words only appear as prefixes of
+ * unrelated words (e.g., seed "seo" should not match "seoul" or "seoulspice").
+ * Each seed word must appear as a standalone word in the suggestion.
+ */
+function isRelevantToSeed(suggestion: string, seedWords: string[]): boolean {
+  return seedWords.every((word) => {
+    const regex = new RegExp(`\\b${escapeRegex(word)}\\b`, "i");
+    return regex.test(suggestion);
+  });
+}
+
+function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

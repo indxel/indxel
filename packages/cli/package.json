@@ -1,6 +1,6 @@
 {
   "name": "indxel-cli",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "description": "CLI for SEO validation. Supports Next.js, Nuxt, Remix, Astro, SvelteKit. Init, check, crawl, CI/CD mode.",
   "type": "module",
   "bin": {
@@ -61,7 +61,7 @@
     "chalk": "^5.4.0",
     "commander": "^13.0.0",
     "glob": "^11.0.0",
-    "indxel": "^0.2.2",
+    "indxel": "^0.3.0",
     "ora": "^8.0.0"
   },
   "devDependencies": {
