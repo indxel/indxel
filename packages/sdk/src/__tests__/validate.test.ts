@@ -3,6 +3,8 @@ import { validateMetadata, resolveFromNextMetadata } from "../validate.js";
 import { createMetadata } from "../metadata.js";
 import { defineSEO } from "../define-seo.js";
 import type { ResolvedMetadata } from "../types.js";
+import { applyCrossPagePenalties } from "../crawler.js";
+import type { CrawledPage, CrawlAnalysis } from "../crawler.js";
 
 const config = defineSEO({
   siteName: "TestSite",
@@ -38,7 +40,7 @@ describe("validateMetadata", () => {
       description: "Short",
     });
 
-    expect(result.score).toBeLessThan(50);
+    expect(result.score).toBeLessThan(60);
     expect(result.grade).toMatch(/^[D-F]$/);
     expect(result.errors.length).toBeGreaterThan(0);
   });
@@ -57,7 +59,7 @@ describe("validateMetadata", () => {
   });
 
   it("gives grade A for score >= 90", () => {
-    // Build a perfect resolved metadata
+    // Build a perfect resolved metadata (h1s + wordCount for content rules)
     const resolved: ResolvedMetadata = {
       title: "A Perfect Page Title That Has The Right Character Count",
       description:
@@ -72,6 +74,8 @@ describe("validateMetadata", () => {
       structuredData: [{ "@context": "https://schema.org", "@type": "WebPage" }],
       viewport: "width=device-width, initial-scale=1",
       favicon: "/favicon.ico",
+      h1s: ["A Perfect Page Title"],
+      wordCount: 500,
     };
 
     const result = validateMetadata(resolved);
@@ -124,6 +128,275 @@ describe("validateMetadata", () => {
     const allResults = [...result.passed, ...result.warnings, ...result.errors];
     const total = allResults.reduce((sum, r) => sum + r.weight, 0);
     expect(total).toBe(100);
+  });
+});
+
+describe("content rules", () => {
+  it("h1-present passes silently when h1s field is absent", () => {
+    const result = validateMetadata({ title: "Test", ogTitle: "Test" });
+    const h1Rule = [...result.passed, ...result.warnings, ...result.errors]
+      .find((r) => r.id === "h1-present");
+    expect(h1Rule).toBeDefined();
+    expect(h1Rule!.status).toBe("pass");
+  });
+
+  it("content-length passes silently when wordCount field is absent", () => {
+    const result = validateMetadata({ title: "Test", ogTitle: "Test" });
+    const clRule = [...result.passed, ...result.warnings, ...result.errors]
+      .find((r) => r.id === "content-length");
+    expect(clRule).toBeDefined();
+    expect(clRule!.status).toBe("pass");
+  });
+
+  it("h1-present errors when 0 H1s", () => {
+    const result = validateMetadata({ title: "Test", ogTitle: "Test", h1s: [] });
+    const h1Rule = [...result.errors].find((r) => r.id === "h1-present");
+    expect(h1Rule).toBeDefined();
+    expect(h1Rule!.status).toBe("error");
+  });
+
+  it("h1-present passes with exactly 1 H1", () => {
+    const result = validateMetadata({ title: "Test", ogTitle: "Test", h1s: ["Hello"] });
+    const h1Rule = [...result.passed].find((r) => r.id === "h1-present");
+    expect(h1Rule).toBeDefined();
+    expect(h1Rule!.status).toBe("pass");
+  });
+
+  it("h1-present warns with multiple H1s", () => {
+    const result = validateMetadata({ title: "Test", ogTitle: "Test", h1s: ["A", "B"] });
+    const h1Rule = [...result.warnings].find((r) => r.id === "h1-present");
+    expect(h1Rule).toBeDefined();
+    expect(h1Rule!.status).toBe("warn");
+  });
+
+  it("content-length errors when < 50 words", () => {
+    const result = validateMetadata({ title: "Test", ogTitle: "Test", wordCount: 13 });
+    const clRule = [...result.errors].find((r) => r.id === "content-length");
+    expect(clRule).toBeDefined();
+    expect(clRule!.status).toBe("error");
+  });
+
+  it("content-length warns when between 50-199 words", () => {
+    const result = validateMetadata({ title: "Test", ogTitle: "Test", wordCount: 120 });
+    const clRule = [...result.warnings].find((r) => r.id === "content-length");
+    expect(clRule).toBeDefined();
+    expect(clRule!.status).toBe("warn");
+  });
+
+  it("content-length passes when >= 200 words", () => {
+    const result = validateMetadata({ title: "Test", ogTitle: "Test", wordCount: 350 });
+    const clRule = [...result.passed].find((r) => r.id === "content-length");
+    expect(clRule).toBeDefined();
+    expect(clRule!.status).toBe("pass");
+  });
+
+  // -- Boundary values --
+
+  it("h1-present passes silently when h1s is explicit null", () => {
+    const result = validateMetadata({ title: "Test", ogTitle: "Test", h1s: null });
+    const h1Rule = [...result.passed].find((r) => r.id === "h1-present");
+    expect(h1Rule).toBeDefined();
+    expect(h1Rule!.status).toBe("pass");
+  });
+
+  it("content-length passes silently when wordCount is explicit null", () => {
+    const result = validateMetadata({ title: "Test", ogTitle: "Test", wordCount: null });
+    const clRule = [...result.passed].find((r) => r.id === "content-length");
+    expect(clRule).toBeDefined();
+    expect(clRule!.status).toBe("pass");
+  });
+
+  it("content-length errors at wordCount = 0", () => {
+    const result = validateMetadata({ title: "Test", ogTitle: "Test", wordCount: 0 });
+    const clRule = [...result.errors].find((r) => r.id === "content-length");
+    expect(clRule).toBeDefined();
+    expect(clRule!.status).toBe("error");
+  });
+
+  it("content-length boundary: 50 words = warn (not error)", () => {
+    const result = validateMetadata({ title: "Test", ogTitle: "Test", wordCount: 50 });
+    const clRule = [...result.warnings].find((r) => r.id === "content-length");
+    expect(clRule).toBeDefined();
+    expect(clRule!.status).toBe("warn");
+  });
+
+  it("content-length boundary: 200 words = pass", () => {
+    const result = validateMetadata({ title: "Test", ogTitle: "Test", wordCount: 200 });
+    const clRule = [...result.passed].find((r) => r.id === "content-length");
+    expect(clRule).toBeDefined();
+    expect(clRule!.status).toBe("pass");
+  });
+
+  it("content-length boundary: 300 words = pass", () => {
+    const result = validateMetadata({ title: "Test", ogTitle: "Test", wordCount: 300 });
+    const clRule = [...result.passed].find((r) => r.id === "content-length");
+    expect(clRule).toBeDefined();
+    expect(clRule!.status).toBe("pass");
+  });
+
+  // -- SPA scenario from plan: 0 H1, 13 words --
+
+  it("SPA scenario: 0 H1 + 13 words loses 13 points vs absent fields", () => {
+    // Without content signals (static check)
+    const baseline = validateMetadata({
+      title: "Test", ogTitle: "Test",
+    });
+
+    // With crawl content signals revealing thin/empty content
+    const spa = validateMetadata({
+      title: "Test", ogTitle: "Test",
+      h1s: [],
+      wordCount: 13,
+    });
+
+    // h1-present (8 pts) + content-length (5 pts) = 13 points lost
+    expect(baseline.score - spa.score).toBe(13);
+  });
+});
+
+describe("applyCrossPagePenalties", () => {
+  function makePage(url: string, title: string, description: string, score: number): CrawledPage {
+    return {
+      url,
+      status: 200,
+      metadata: { title, description },
+      validation: { score, grade: "B", passed: [], warnings: [], errors: [] },
+      internalLinks: [],
+      externalLinks: [],
+      depth: 0,
+      h1s: ["H1"],
+      wordCount: 300,
+      responseTimeMs: 100,
+      redirectChain: [],
+      structuredDataTypes: [],
+      isAppPage: false,
+      imagesTotal: 0,
+      imagesMissingAlt: 0,
+    };
+  }
+
+  it("deducts 5 points for duplicate titles", () => {
+    const pages = [
+      makePage("https://a.com/1", "Same Title", "Desc 1", 80),
+      makePage("https://a.com/2", "Same Title", "Desc 2", 80),
+      makePage("https://a.com/3", "Unique Title", "Desc 3", 80),
+    ];
+
+    const analysis: CrawlAnalysis = {
+      duplicateTitles: [{ title: "Same Title", urls: ["https://a.com/1", "https://a.com/2"] }],
+      duplicateDescriptions: [],
+      h1Issues: [],
+      brokenInternalLinks: [],
+      brokenExternalLinks: [],
+      redirects: [],
+      thinContentPages: [],
+      internalLinkGraph: [],
+      orphanPages: [],
+      slowestPages: [],
+      structuredDataSummary: [],
+      imageAltIssues: [],
+      brokenImages: [],
+      externalLinksBlocked403: 0,
+      nonHtmlInternalResources: [],
+    };
+
+    applyCrossPagePenalties(pages, analysis);
+
+    expect(pages[0].validation.score).toBe(75);
+    expect(pages[1].validation.score).toBe(75);
+    expect(pages[2].validation.score).toBe(80); // not affected
+    expect(pages[0].validation.errors.some((e) => e.id === "unique-title")).toBe(true);
+  });
+
+  it("deducts 3 points for duplicate descriptions", () => {
+    const pages = [
+      makePage("https://a.com/1", "Title 1", "Same Desc", 80),
+      makePage("https://a.com/2", "Title 2", "Same Desc", 80),
+    ];
+
+    const analysis: CrawlAnalysis = {
+      duplicateTitles: [],
+      duplicateDescriptions: [{ description: "Same Desc", urls: ["https://a.com/1", "https://a.com/2"] }],
+      h1Issues: [],
+      brokenInternalLinks: [],
+      brokenExternalLinks: [],
+      redirects: [],
+      thinContentPages: [],
+      internalLinkGraph: [],
+      orphanPages: [],
+      slowestPages: [],
+      structuredDataSummary: [],
+      imageAltIssues: [],
+      brokenImages: [],
+      externalLinksBlocked403: 0,
+      nonHtmlInternalResources: [],
+    };
+
+    applyCrossPagePenalties(pages, analysis);
+
+    expect(pages[0].validation.score).toBe(77);
+    expect(pages[1].validation.score).toBe(77);
+    expect(pages[0].validation.warnings.some((w) => w.id === "unique-description")).toBe(true);
+  });
+
+  it("applies both penalties cumulatively", () => {
+    const pages = [
+      makePage("https://a.com/1", "Same", "Same", 80),
+      makePage("https://a.com/2", "Same", "Same", 80),
+    ];
+
+    const analysis: CrawlAnalysis = {
+      duplicateTitles: [{ title: "Same", urls: ["https://a.com/1", "https://a.com/2"] }],
+      duplicateDescriptions: [{ description: "Same", urls: ["https://a.com/1", "https://a.com/2"] }],
+      h1Issues: [],
+      brokenInternalLinks: [],
+      brokenExternalLinks: [],
+      redirects: [],
+      thinContentPages: [],
+      internalLinkGraph: [],
+      orphanPages: [],
+      slowestPages: [],
+      structuredDataSummary: [],
+      imageAltIssues: [],
+      brokenImages: [],
+      externalLinksBlocked403: 0,
+      nonHtmlInternalResources: [],
+    };
+
+    applyCrossPagePenalties(pages, analysis);
+
+    // 80 - 5 (dup title) - 3 (dup desc) = 72
+    expect(pages[0].validation.score).toBe(72);
+    expect(pages[0].validation.grade).toBe("C");
+  });
+
+  it("does not go below 0", () => {
+    const pages = [
+      makePage("https://a.com/1", "Same", "Same", 3),
+      makePage("https://a.com/2", "Same", "Same", 3),
+    ];
+
+    const analysis: CrawlAnalysis = {
+      duplicateTitles: [{ title: "Same", urls: ["https://a.com/1", "https://a.com/2"] }],
+      duplicateDescriptions: [{ description: "Same", urls: ["https://a.com/1", "https://a.com/2"] }],
+      h1Issues: [],
+      brokenInternalLinks: [],
+      brokenExternalLinks: [],
+      redirects: [],
+      thinContentPages: [],
+      internalLinkGraph: [],
+      orphanPages: [],
+      slowestPages: [],
+      structuredDataSummary: [],
+      imageAltIssues: [],
+      brokenImages: [],
+      externalLinksBlocked403: 0,
+      nonHtmlInternalResources: [],
+    };
+
+    applyCrossPagePenalties(pages, analysis);
+
+    expect(pages[0].validation.score).toBe(0);
   });
 });
 

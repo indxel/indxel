@@ -28,7 +28,7 @@ export const twitterCardRule: RuleDefinition = {
   id: "twitter-card",
   name: "Twitter Card",
   description: "Page should have a Twitter card configuration for X/Twitter sharing",
-  weight: 5,
+  weight: 4,
   check(metadata: ResolvedMetadata): RuleCheckResult {
     const has = !!metadata.twitterCard && metadata.twitterCard.trim().length > 0;
     return {
@@ -45,7 +45,7 @@ export const alternatesRule: RuleDefinition = {
   id: "alternates-hreflang",
   name: "Alternates / Hreflang",
   description: "Multi-language pages should declare hreflang alternates",
-  weight: 5,
+  weight: 4,
   check(metadata: ResolvedMetadata): RuleCheckResult {
     const keys = metadata.alternates ? Object.keys(metadata.alternates) : [];
     const has = keys.length > 0;

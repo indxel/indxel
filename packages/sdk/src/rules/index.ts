@@ -13,19 +13,21 @@ import {
   faviconRule,
 } from "./robots.js";
 import { imageAltTextRule } from "./image-alt.js";
+import { h1PresentRule, contentLengthRule } from "./content.js";
 
 /**
  * All validation rules, ordered by weight (most impactful first).
  * Total weight: 100 points.
  *
- * Title:           5 + 10 = 15
- * Description:     5 + 10 = 15
- * OpenGraph:       10 + 5 + 5 = 20
+ * Title:           5 + 8 = 13
+ * Description:     5 + 8 = 13
+ * OpenGraph:       8 + 4 + 4 = 16
  * Canonical:       10
- * Structured Data: 8 + 2 + 5 = 15
+ * Structured Data: 6 + 2 + 4 = 12
+ * Content:         8 + 5 = 13
  * Robots:          5
- * Twitter:         5
- * Alternates:      5
+ * Twitter:         4
+ * Alternates:      4
  * Viewport:        3
  * Favicon:         2
  * Image Alt:       5
@@ -44,6 +46,8 @@ export const allRules: RuleDefinition[] = [
   structuredDataPresentRule,
   structuredDataValidRule,
   structuredDataCompleteRule,
+  h1PresentRule,
+  contentLengthRule,
   robotsRule,
   twitterCardRule,
   alternatesRule,
@@ -64,6 +68,8 @@ export {
   structuredDataPresentRule,
   structuredDataValidRule,
   structuredDataCompleteRule,
+  h1PresentRule,
+  contentLengthRule,
   robotsRule,
   twitterCardRule,
   alternatesRule,

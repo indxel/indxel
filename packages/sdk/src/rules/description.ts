@@ -20,7 +20,7 @@ export const descriptionLengthRule: RuleDefinition = {
   id: "description-length",
   name: "Meta Description Length",
   description: "Meta description should be between 120 and 160 characters",
-  weight: 10,
+  weight: 8,
   check(metadata: ResolvedMetadata): RuleCheckResult {
     const desc = metadata.description?.trim() ?? "";
     const len = desc.length;

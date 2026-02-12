@@ -20,7 +20,7 @@ export const titleLengthRule: RuleDefinition = {
   id: "title-length",
   name: "Title Length",
   description: "Title should be between 50 and 60 characters for optimal display in SERPs",
-  weight: 10,
+  weight: 8,
   check(metadata: ResolvedMetadata): RuleCheckResult {
     const title = metadata.title?.trim() ?? "";
     const len = title.length;

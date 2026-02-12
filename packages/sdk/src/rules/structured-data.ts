@@ -4,7 +4,7 @@ export const structuredDataPresentRule: RuleDefinition = {
   id: "structured-data-present",
   name: "Structured Data Present",
   description: "Page should have at least one JSON-LD structured data block",
-  weight: 8,
+  weight: 6,
   check(metadata: ResolvedMetadata): RuleCheckResult {
     const has = Array.isArray(metadata.structuredData) && metadata.structuredData.length > 0;
     return {
@@ -77,7 +77,7 @@ export const structuredDataCompleteRule: RuleDefinition = {
   id: "structured-data-complete",
   name: "Structured Data Complete",
   description: "JSON-LD structured data should have required fields for its @type",
-  weight: 5,
+  weight: 4,
   check(metadata: ResolvedMetadata): RuleCheckResult {
     if (!Array.isArray(metadata.structuredData) || metadata.structuredData.length === 0) {
       return { status: "warn", message: "No structured data to validate" };

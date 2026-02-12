@@ -4,7 +4,7 @@ export const ogImageRule: RuleDefinition = {
   id: "og-image",
   name: "OpenGraph Image",
   description: "Page should have an og:image for social sharing previews",
-  weight: 10,
+  weight: 8,
   severity: "critical",
   check(metadata: ResolvedMetadata): RuleCheckResult {
     const has = !!metadata.ogImage && metadata.ogImage.trim().length > 0;
@@ -20,7 +20,7 @@ export const ogTitleRule: RuleDefinition = {
   id: "og-title",
   name: "OpenGraph Title",
   description: "Page should have an og:title",
-  weight: 5,
+  weight: 4,
   check(metadata: ResolvedMetadata): RuleCheckResult {
     const has = !!metadata.ogTitle && metadata.ogTitle.trim().length > 0;
     return {
@@ -35,7 +35,7 @@ export const ogDescriptionRule: RuleDefinition = {
   id: "og-description",
   name: "OpenGraph Description",
   description: "Page should have an og:description",
-  weight: 5,
+  weight: 4,
   check(metadata: ResolvedMetadata): RuleCheckResult {
     const has = !!metadata.ogDescription && metadata.ogDescription.trim().length > 0;
     return {

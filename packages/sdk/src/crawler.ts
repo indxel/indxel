@@ -241,7 +241,12 @@ export async function crawlSite(
     }
   }
 
-  // Compute summary
+  const analysis = await analyzeCrawl(pages, opts.ignorePatterns);
+
+  // Apply cross-page penalties (duplicate titles/descriptions) to individual page scores
+  applyCrossPagePenalties(pages, analysis);
+
+  // Compute summary after penalties
   const validPages = pages.filter((p) => !p.error);
   const averageScore =
     validPages.length > 0
@@ -249,8 +254,6 @@ export async function crawlSite(
       : 0;
   const totalErrors = validPages.reduce((sum, p) => sum + p.validation.errors.length, 0);
   const totalWarnings = validPages.reduce((sum, p) => sum + p.validation.warnings.length, 0);
-
-  const analysis = await analyzeCrawl(pages, opts.ignorePatterns);
 
   return {
     startUrl,
@@ -554,11 +557,16 @@ async function crawlPage(
 
     const html = await response!.text();
     const metadata = extractMetadataFromHtml(html);
+    const h1s = extractH1s(html);
+    const wordCount = extractWordCount(html);
+
+    // Inject content signals into metadata so content rules can score them
+    metadata.h1s = h1s;
+    metadata.wordCount = wordCount;
+
     const validation = validateMetadata(metadata, { strict: opts.strict });
     const internalLinks = extractInternalLinks(html, currentUrl);
     const externalLinks = extractExternalLinks(html, currentUrl);
-    const h1s = extractH1s(html);
-    const wordCount = extractWordCount(html);
     const structuredDataTypes = extractStructuredDataTypes(metadata.structuredData ?? null);
 
     const isAppPage = detectAppPage(currentUrl, html, wordCount);
@@ -573,6 +581,61 @@ async function crawlPage(
     };
   } catch (err) {
     return emptyPage(err instanceof Error ? err.message : String(err));
+  }
+}
+
+/**
+ * Apply cross-page penalties to individual page scores.
+ * Pages with duplicate titles or descriptions get score deductions.
+ */
+export function applyCrossPagePenalties(pages: CrawledPage[], analysis: CrawlAnalysis): void {
+  const DUPLICATE_TITLE_PENALTY = 5;
+  const DUPLICATE_DESC_PENALTY = 3;
+
+  // Build sets of URLs that have duplicates
+  const dupTitleUrls = new Set<string>();
+  for (const dup of analysis.duplicateTitles) {
+    for (const url of dup.urls) dupTitleUrls.add(url);
+  }
+
+  const dupDescUrls = new Set<string>();
+  for (const dup of analysis.duplicateDescriptions) {
+    for (const url of dup.urls) dupDescUrls.add(url);
+  }
+
+  for (const page of pages) {
+    if (page.error) continue;
+
+    if (dupTitleUrls.has(page.url)) {
+      page.validation.score = Math.max(0, page.validation.score - DUPLICATE_TITLE_PENALTY);
+      page.validation.errors.push({
+        id: "unique-title",
+        name: "Unique Title",
+        description: "Each page should have a unique title",
+        weight: 0,
+        severity: "critical",
+        status: "error",
+        message: "Duplicate title found on multiple pages",
+        value: page.metadata.title ?? undefined,
+      });
+    }
+
+    if (dupDescUrls.has(page.url)) {
+      page.validation.score = Math.max(0, page.validation.score - DUPLICATE_DESC_PENALTY);
+      page.validation.warnings.push({
+        id: "unique-description",
+        name: "Unique Description",
+        description: "Each page should have a unique meta description",
+        weight: 0,
+        severity: "optional",
+        status: "warn",
+        message: "Duplicate description found on multiple pages",
+        value: page.metadata.description ?? undefined,
+      });
+    }
+
+    // Recalculate grade after penalties
+    page.validation.grade = scoreToGrade(page.validation.score);
   }
 }
 

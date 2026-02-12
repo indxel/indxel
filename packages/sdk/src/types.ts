@@ -190,4 +190,8 @@ export interface ResolvedMetadata {
   viewport?: string | null;
   favicon?: string | null;
   images?: Array<{ src: string; alt: string | null }> | null;
+  /** H1 headings found on the page (injected by crawler, absent in static checks) */
+  h1s?: string[] | null;
+  /** Approximate word count of visible text (injected by crawler, absent in static checks) */
+  wordCount?: number | null;
 }
