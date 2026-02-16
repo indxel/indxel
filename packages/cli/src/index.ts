@@ -6,6 +6,7 @@ import { keywordsCommand } from "./commands/keywords.js";
 import { indexCommand } from "./commands/index.js";
 import { perfCommand } from "./commands/perf.js";
 import { linkCommand } from "./commands/link.js";
+import { analyticsCommand } from "./commands/analytics.js";
 
 // Injected at build time by tsup define
 declare const __CLI_VERSION__: string;
@@ -26,8 +27,9 @@ export function createProgram(): Command {
   program.addCommand(indexCommand);
   program.addCommand(perfCommand);
   program.addCommand(linkCommand);
+  program.addCommand(analyticsCommand);
 
   return program;
 }
 
-export { initCommand, checkCommand, crawlCommand, keywordsCommand, indexCommand, perfCommand, linkCommand };
+export { initCommand, checkCommand, crawlCommand, keywordsCommand, indexCommand, perfCommand, linkCommand, analyticsCommand };

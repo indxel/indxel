@@ -400,6 +400,93 @@ describe("applyCrossPagePenalties", () => {
   });
 });
 
+describe("structured-data-duplicates rule", () => {
+  const base: ResolvedMetadata = {
+    title: "Test", description: null, canonical: null,
+    ogTitle: "Test", ogDescription: null, ogImage: null,
+    twitterCard: null, robots: null, alternates: null,
+    structuredData: null, viewport: null, favicon: null,
+  };
+
+  it("passes when no structured data", () => {
+    const result = validateMetadata({ ...base, structuredData: null });
+    const rule = [...result.passed].find((r) => r.id === "structured-data-duplicates");
+    expect(rule).toBeDefined();
+    expect(rule!.status).toBe("pass");
+  });
+
+  it("passes with unique types", () => {
+    const result = validateMetadata({
+      ...base,
+      structuredData: [
+        { "@context": "https://schema.org", "@type": "FAQPage", mainEntity: [] },
+        { "@context": "https://schema.org", "@type": "BreadcrumbList", itemListElement: [] },
+      ],
+    });
+    const rule = [...result.passed].find((r) => r.id === "structured-data-duplicates");
+    expect(rule).toBeDefined();
+    expect(rule!.status).toBe("pass");
+  });
+
+  it("errors on duplicate FAQPage", () => {
+    const result = validateMetadata({
+      ...base,
+      structuredData: [
+        { "@context": "https://schema.org", "@type": "FAQPage", mainEntity: [{ "@type": "Question", name: "Q1" }] },
+        { "@context": "https://schema.org", "@type": "FAQPage", mainEntity: [{ "@type": "Question", name: "Q2" }] },
+      ],
+    });
+    const rule = [...result.errors].find((r) => r.id === "structured-data-duplicates");
+    expect(rule).toBeDefined();
+    expect(rule!.status).toBe("error");
+    expect(rule!.message).toContain("FAQPage");
+  });
+
+  it("errors on duplicate Organization", () => {
+    const result = validateMetadata({
+      ...base,
+      structuredData: [
+        { "@context": "https://schema.org", "@type": "Organization", name: "A", url: "https://a.com" },
+        { "@context": "https://schema.org", "@type": "Organization", name: "B", url: "https://b.com" },
+      ],
+    });
+    const rule = [...result.errors].find((r) => r.id === "structured-data-duplicates");
+    expect(rule).toBeDefined();
+    expect(rule!.message).toContain("Organization");
+  });
+
+  it("detects duplicates inside @graph", () => {
+    const result = validateMetadata({
+      ...base,
+      structuredData: [
+        {
+          "@context": "https://schema.org",
+          "@graph": [
+            { "@type": "WebSite", name: "A", url: "https://a.com" },
+            { "@type": "WebSite", name: "B", url: "https://b.com" },
+          ],
+        },
+      ],
+    });
+    const rule = [...result.errors].find((r) => r.id === "structured-data-duplicates");
+    expect(rule).toBeDefined();
+    expect(rule!.message).toContain("WebSite");
+  });
+
+  it("allows multiple Article blocks (not in unique types)", () => {
+    const result = validateMetadata({
+      ...base,
+      structuredData: [
+        { "@context": "https://schema.org", "@type": "Article", headline: "A", author: "X", datePublished: "2026-01-01" },
+        { "@context": "https://schema.org", "@type": "Article", headline: "B", author: "Y", datePublished: "2026-01-02" },
+      ],
+    });
+    const rule = [...result.passed].find((r) => r.id === "structured-data-duplicates");
+    expect(rule).toBeDefined();
+    expect(rule!.status).toBe("pass");
+  });
+});
+
 describe("resolveFromNextMetadata", () => {
   it("extracts fields from Next.js Metadata shape", () => {
     const meta = createMetadata(

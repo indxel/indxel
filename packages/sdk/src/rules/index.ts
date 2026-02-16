@@ -4,7 +4,7 @@ import { titlePresentRule, titleLengthRule } from "./title.js";
 import { descriptionPresentRule, descriptionLengthRule } from "./description.js";
 import { ogImageRule, ogTitleRule, ogDescriptionRule } from "./open-graph.js";
 import { canonicalRule } from "./canonical.js";
-import { structuredDataPresentRule, structuredDataValidRule, structuredDataCompleteRule } from "./structured-data.js";
+import { structuredDataPresentRule, structuredDataValidRule, structuredDataCompleteRule, structuredDataDuplicatesRule } from "./structured-data.js";
 import {
   robotsRule,
   twitterCardRule,
@@ -23,7 +23,7 @@ import { h1PresentRule, contentLengthRule } from "./content.js";
  * Description:     5 + 8 = 13
  * OpenGraph:       8 + 4 + 4 = 16
  * Canonical:       10
- * Structured Data: 6 + 2 + 4 = 12
+ * Structured Data: 4 + 2 + 4 + 2 = 12
  * Content:         8 + 5 = 13
  * Robots:          5
  * Twitter:         4
@@ -46,6 +46,7 @@ export const allRules: RuleDefinition[] = [
   structuredDataPresentRule,
   structuredDataValidRule,
   structuredDataCompleteRule,
+  structuredDataDuplicatesRule,
   h1PresentRule,
   contentLengthRule,
   robotsRule,
@@ -68,6 +69,7 @@ export {
   structuredDataPresentRule,
   structuredDataValidRule,
   structuredDataCompleteRule,
+  structuredDataDuplicatesRule,
   h1PresentRule,
   contentLengthRule,
   robotsRule,

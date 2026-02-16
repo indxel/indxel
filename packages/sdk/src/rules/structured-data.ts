@@ -4,7 +4,7 @@ export const structuredDataPresentRule: RuleDefinition = {
   id: "structured-data-present",
   name: "Structured Data Present",
   description: "Page should have at least one JSON-LD structured data block",
-  weight: 6,
+  weight: 4,
   check(metadata: ResolvedMetadata): RuleCheckResult {
     const has = Array.isArray(metadata.structuredData) && metadata.structuredData.length > 0;
     return {
@@ -113,6 +113,55 @@ export const structuredDataCompleteRule: RuleDefinition = {
       status: allMissing ? "error" : "warn",
       message: issues.join("; "),
       value: issues.length,
+    };
+  },
+};
+
+// Types where duplicates cause Google Rich Results errors
+const UNIQUE_TYPES = new Set([
+  "FAQPage", "FAQ",
+  "BreadcrumbList",
+  "WebSite",
+  "Organization",
+  "HowTo",
+  "LocalBusiness",
+  "SearchAction",
+]);
+
+export const structuredDataDuplicatesRule: RuleDefinition = {
+  id: "structured-data-duplicates",
+  name: "No Duplicate Structured Data",
+  description: "Page should not have multiple JSON-LD blocks of the same type (causes Google Rich Results errors)",
+  weight: 2,
+  check(metadata: ResolvedMetadata): RuleCheckResult {
+    if (!Array.isArray(metadata.structuredData) || metadata.structuredData.length === 0) {
+      return { status: "pass", message: "No structured data — no duplicates possible" };
+    }
+
+    const entries = getSchemaEntries(metadata.structuredData);
+    const typeCounts = new Map<string, number>();
+
+    for (const entry of entries) {
+      const type = typeof entry["@type"] === "string" ? entry["@type"] : null;
+      if (!type) continue;
+      typeCounts.set(type, (typeCounts.get(type) ?? 0) + 1);
+    }
+
+    const duplicates: string[] = [];
+    for (const [type, count] of typeCounts) {
+      if (count > 1 && UNIQUE_TYPES.has(type)) {
+        duplicates.push(`${type} (×${count})`);
+      }
+    }
+
+    if (duplicates.length === 0) {
+      return { status: "pass", message: "No duplicate structured data types" };
+    }
+
+    return {
+      status: "error",
+      message: `Duplicate structured data will cause Google Rich Results errors: ${duplicates.join(", ")}`,
+      value: duplicates.length,
     };
   },
 };
