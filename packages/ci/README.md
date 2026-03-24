@@ -1,6 +1,6 @@
 # indxel-ci
 
-CI/CD guard for [indxel](https://github.com/indxel/indxel). Fail builds on broken SEO.
+CI/CD guard for [indxel](https://indxel.com). Fail builds on broken SEO.
 
 ## GitHub Actions
 
