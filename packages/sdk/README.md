@@ -1,6 +1,6 @@
 # indxel
 
-> ESLint for SEO. Your deploy fails on broken meta tags.
+> TypeScript SDK for [indxel](https://indxel.com) — ESLint for SEO. Your deploy fails on broken meta tags.
 
 [![npm version](https://img.shields.io/npm/v/indxel)](https://www.npmjs.com/package/indxel)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://opensource.org/licenses/MIT)
@@ -350,6 +350,11 @@ import type {
 ```
 
 ---
+
+## Links
+
+- [Documentation](https://indxel.com)
+- [GitHub](https://github.com/indxel/indxel)
 
 ## License
 
