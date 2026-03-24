@@ -142,3 +142,8 @@ npm install -D indxel-cli
 ```
 
 The GitHub Action installs it automatically — no dependency needed.
+
+## Links
+
+- [Documentation](https://indxel.com)
+- [GitHub](https://github.com/indxel/indxel)

@@ -351,6 +351,11 @@ import type {
 
 ---
 
+## Links
+
+- [Documentation](https://indxel.com)
+- [GitHub](https://github.com/indxel/indxel)
+
 ## License
 
 [MIT](./LICENSE)
